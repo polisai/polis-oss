@@ -1,0 +1,11 @@
+id: cost-policies
+name: Cost and Budget Policies
+description: Enforces session token and estimated cost limits for agents
+version: 1
+revision: dev
+path: __REPO_ROOT__/tests/fixtures/policy/bundles/cost
+artifacts:
+  - name: cost.rego
+    path: cost.rego
+    type: rego
+    mediaType: text/rego

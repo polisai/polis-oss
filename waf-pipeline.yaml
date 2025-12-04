@@ -1,0 +1,30 @@
+id: waf-pipeline
+agentId: "*"
+protocol: http
+nodes:
+  - id: start
+    type: auth
+    on:
+      success: waf_check
+      failure: deny
+  - id: waf_check
+    type: waf
+    config:
+      action: block
+      rules:
+        - name: "Prompt Injection"
+          pattern: "(?i)(ignore\\s+(all\\s+)?previous\\s+instructions|system\\s+override|simulated\\s+attack)"
+          severity: "high"
+          action: "block"
+    on:
+      success: egress
+      failure: deny
+  - id: egress
+    type: egress
+    config:
+      upstream_mode: static
+      upstream_url: https://api.openai.com
+    on:
+      success: ""
+  - id: deny
+    type: terminal.deny

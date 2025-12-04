@@ -1,0 +1,39 @@
+id: dlp-pipeline
+agentId: "*"
+protocol: http
+nodes:
+  - id: start
+    type: auth
+    on:
+      success: dlp_request
+      failure: deny
+  - id: dlp_request
+    type: dlp
+    config:
+      scope: request
+      rules:
+        - "pii.email"
+        - "credit_card"
+    on:
+      success: dlp_response
+      failure: deny
+  - id: dlp_response
+    type: dlp
+    config:
+      scope: response
+      mode: stream
+      rules:
+        - "pii.email"
+        - "credit_card"
+    on:
+      success: egress
+      failure: deny
+  - id: egress
+    type: egress
+    config:
+      upstream_mode: static
+      upstream_url: https://api.openai.com
+    on:
+      success: ""
+  - id: deny
+    type: terminal.deny

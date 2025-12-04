@@ -1,0 +1,70 @@
+{
+  "id": "simple-dlp-proxy",
+  "version": 1,
+  "agentId": "dlp-agent",
+  "protocol": "http",
+  "defaults": {
+    "timeoutMs": 5000,
+    "retries": {
+      "maxAttempts": 3,
+      "baseMs": 100,
+      "maxMs": 1000,
+      "backoff": "exponential"
+    }
+  },
+  "nodes": [
+    {
+      "id": "auth",
+      "type": "auth.jwt.validate",
+      "config": {
+        "issuer": "https://auth.example.com",
+        "audience": "https://api.example.com"
+      },
+      "posture": "fail-closed",
+      "on": {
+        "success": "egress",
+        "failure": "deny"
+      }
+    },
+    {
+      "id": "egress",
+      "type": "egress.http",
+      "config": {
+        "upstream_url": "https://api.example.com",
+        "timeout_ms": 3000
+      },
+      "governance": {
+        "timeoutMs": 3000,
+        "circuitBreaker": {
+          "window": "10s",
+          "failureRateThreshold": 50
+        }
+      },
+      "on": {
+        "success": "dlp_check",
+        "failure": "deny",
+        "timeout": "deny"
+      }
+    },
+    {
+      "id": "dlp_check",
+      "type": "dlp.inspect",
+      "config": {
+        "mode": "egress",
+        "patterns": ["SSN:", "credit_card:"]
+      },
+      "on": {
+        "success": "allow",
+        "failure": "deny"
+      }
+    },
+    {
+      "id": "allow",
+      "type": "terminal.allow"
+    },
+    {
+      "id": "deny",
+      "type": "terminal.deny"
+    }
+  ]
+}

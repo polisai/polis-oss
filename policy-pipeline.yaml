@@ -1,0 +1,26 @@
+id: policy-pipeline
+agentId: "*"
+protocol: http
+nodes:
+  - id: start
+    type: auth
+    on:
+      success: policy_check
+      failure: deny
+  - id: policy_check
+    type: policy
+    config:
+      entrypoint: "policy/main"
+      posture: "fail-closed"
+    on:
+      success: egress
+      failure: deny
+  - id: egress
+    type: egress
+    config:
+      upstream_mode: static
+      upstream_url: https://api.openai.com
+    on:
+      success: ""
+  - id: deny
+    type: terminal.deny

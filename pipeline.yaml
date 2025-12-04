@@ -1,0 +1,17 @@
+id: validation-pipeline
+agentId: validation-agent
+protocol: http
+nodes:
+  - id: start
+    type: auth
+    on:
+      success: egress
+      failure: deny
+  - id: egress
+    type: egress
+    config:
+      upstream_url: https://httpbin.org/get
+    on:
+      success: ""
+  - id: deny
+    type: terminal.deny

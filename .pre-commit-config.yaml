@@ -1,0 +1,82 @@
+# Pre-commit hooks configuration
+# See https://pre-commit.com for more information
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--unsafe']  # Allow custom tags in GitHub Actions
+      - id: check-added-large-files
+        args: ['--maxkb=1024']
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+
+  # Go-specific checks
+  - repo: local
+    hooks:
+      # Go format
+      - id: go-fmt
+        name: go fmt
+        entry: gofmt
+        args: [-w, .]
+        language: system
+        files: \.go$
+        pass_filenames: false
+
+      # Go vet
+      - id: go-vet
+        name: go vet
+        entry: go vet
+        language: system
+        files: \.go$
+        pass_filenames: false
+
+      # Go mod tidy
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: go mod tidy
+        language: system
+        files: ^go\.(mod|sum)$
+        pass_filenames: false
+
+      # Run tests
+      - id: go-test
+        name: go test
+        entry: go test
+        args: [-race, -timeout=2m, ./...]
+        language: system
+        files: \.go$
+        pass_filenames: false
+
+      # Security scan
+      - id: gosec
+        name: gosec security scan
+        entry: gosec
+        args: [-no-fail, ./...]
+        language: system
+        files: \.go$
+        pass_filenames: false
+
+  # Secret scanning
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package.lock.json
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.41.0
+    hooks:
+      - id: markdownlint
+        args: ['--fix']
+
+# Global settings
+default_language_version:
+  python: python3.11

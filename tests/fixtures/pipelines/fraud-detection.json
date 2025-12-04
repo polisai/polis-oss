@@ -1,0 +1,137 @@
+{
+  "id": "fraud-detection",
+  "version": 1,
+  "agentId": "fraud-agent",
+  "protocol": "http",
+  "defaults": {
+    "timeoutMs": 10000,
+    "retries": {
+      "maxAttempts": 1,
+      "backoff": "fixed",
+      "baseMs": 0
+    }
+  },
+  "nodes": [
+    {
+      "id": "auth",
+      "type": "auth.jwt.validate",
+      "config": {
+        "issuer": "https://auth.example.com",
+        "audience": "fraud-api"
+      },
+      "posture": "fail-closed",
+      "on": {
+        "success": "extract_risk_score",
+        "failure": "deny"
+      }
+    },
+    {
+      "id": "extract_risk_score",
+      "type": "policy.opa",
+      "config": {
+        "bundleRef": "fraud-detection",
+        "bundleVersion": 1,
+        "entrypoint": "policy/extract_risk"
+      },
+      "posture": "fail-closed",
+      "governance": {
+        "timeoutMs": 500
+      },
+      "on": {
+        "success": "risk_evaluation",
+        "failure": "deny"
+      }
+    },
+    {
+      "id": "risk_evaluation",
+      "type": "policy.opa",
+      "config": {
+        "bundleRef": "fraud-detection",
+        "bundleVersion": 1,
+        "entrypoint": "policy/evaluate_risk"
+      },
+      "posture": "fail-closed",
+      "when": [
+        {
+          "if": "risk_score >= 0.8",
+          "then": "high_risk_block"
+        },
+        {
+          "if": "risk_score >= 0.5",
+          "then": "medium_risk_mfa"
+        }
+      ],
+      "governance": {
+        "timeoutMs": 1000
+      },
+      "on": {
+        "success": "egress",
+        "failure": "deny"
+      }
+    },
+    {
+      "id": "high_risk_block",
+      "type": "terminal.deny",
+      "config": {
+        "status_code": 403,
+        "message": "Transaction blocked: High risk detected"
+      }
+    },
+    {
+      "id": "medium_risk_mfa",
+      "type": "policy.opa",
+      "config": {
+        "bundleRef": "fraud-detection",
+        "bundleVersion": 1,
+        "entrypoint": "policy/require_mfa"
+      },
+      "posture": "fail-closed",
+      "on": {
+        "success": "egress",
+        "failure": "deny"
+      }
+    },
+    {
+      "id": "egress",
+      "type": "egress.http",
+      "config": {
+        "upstream_url": "https://payment.example.com/process",
+        "timeout_ms": 5000
+      },
+      "governance": {
+        "timeoutMs": 5000,
+        "circuitBreaker": {
+          "window": "20s",
+          "failureRateThreshold": 40
+        }
+      },
+      "on": {
+        "success": "log_transaction",
+        "failure": "deny",
+        "timeout": "deny"
+      }
+    },
+    {
+      "id": "log_transaction",
+      "type": "policy.opa",
+      "config": {
+        "bundleRef": "fraud-detection",
+        "bundleVersion": 1,
+        "entrypoint": "policy/log_decision"
+      },
+      "posture": "fail-open",
+      "on": {
+        "success": "allow",
+        "failure": "allow"
+      }
+    },
+    {
+      "id": "allow",
+      "type": "terminal.allow"
+    },
+    {
+      "id": "deny",
+      "type": "terminal.deny"
+    }
+  ]
+}
