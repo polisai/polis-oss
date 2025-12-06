@@ -17,6 +17,7 @@ import (
 	handlers "github.com/polisai/polis-oss/pkg/engine/handlers"
 	"github.com/polisai/polis-oss/pkg/engine/runtime"
 	llmjudge "github.com/polisai/polis-oss/pkg/nodes/llm_judge/v1"
+	"github.com/polisai/polis-oss/pkg/storage"
 	"github.com/polisai/polis-oss/pkg/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -39,6 +40,7 @@ type DAGExecutor struct {
 	breakerConfigs map[string]string
 	exprEval       *expr.Evaluator
 	triggerMatcher *triggerMatcher
+	tokenVault     storage.TokenVault
 }
 
 // handlerRegistry stores canonical handlers and alias mappings.
@@ -71,8 +73,9 @@ type nodeExecutionMeta struct {
 
 // DAGExecutorConfig holds dependencies for creating a DAGExecutor.
 type DAGExecutorConfig struct {
-	Registry *PipelineRegistry
-	Logger   *slog.Logger
+	Registry   *PipelineRegistry
+	Logger     *slog.Logger
+	TokenVault storage.TokenVault
 }
 
 // NewDAGExecutor creates a new DAG executor with the given configuration.
@@ -90,6 +93,7 @@ func NewDAGExecutor(cfg DAGExecutorConfig) *DAGExecutor {
 		breakerConfigs: make(map[string]string),
 		exprEval:       expr.NewEvaluator(expr.Options{}),
 		triggerMatcher: newTriggerMatcher(logger),
+		tokenVault:     cfg.TokenVault,
 	}
 
 	// Register real handlers (Phase 3B)
@@ -1135,9 +1139,10 @@ func (e *DAGExecutor) registerDefaultHandlers() {
 	headerTransformHandler := handlers.NewHeaderTransformHandler(e.logger)
 	httpEgressHandler := handlers.NewEgressHTTPHandler(e.logger)
 	wafHandler := handlers.NewWAFHandler(e.logger)
-	dlpHandler := handlers.NewDLPHandler(e.logger)
+	dlpHandler := handlers.NewDLPHandler(e.logger, e.tokenVault)
 	policyHandler := handlers.NewPolicyHandler(e.logger)
 	llmJudgeHandler := llmjudge.NewLLMJudgeHandler(e.logger, nil)
+	detokenizeHandler := handlers.NewDetokenizeHandler(e.logger, e.tokenVault)
 	allowHandler := &TerminalAllowHandler{logger: e.logger}
 
 	e.handlers.register("auth.jwt.validate", "v1", passthroughHandler, "auth.jwt.validate", "auth", "auth.passthrough")
@@ -1156,6 +1161,7 @@ func (e *DAGExecutor) registerDefaultHandlers() {
 	e.handlers.register("decision.condition", "v1", passthroughHandler, "decision.condition")
 	e.handlers.register("waf.inspect", "v1", wafHandler, "waf.inspect", "waf", "policy.waf")
 	e.handlers.register("dlp.inspect", "v1", dlpHandler, "dlp.inspect", "dlp", "policy.dlp")
+	e.handlers.register("dlp.detokenize", "v1", detokenizeHandler, "dlp.detokenize", "detokenize")
 	e.handlers.register("llm.judge", "v1", llmJudgeHandler, "llm.judge", "llm_judge")
 	e.handlers.register("terminal.deny", "v1", &TerminalDenyHandler{logger: e.logger}, "terminal.deny", "terminal_deny")
 	e.handlers.register("terminal.error", "v1", &TerminalErrorHandler{logger: e.logger}, "terminal.error", "terminal_error")

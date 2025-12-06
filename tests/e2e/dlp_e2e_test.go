@@ -12,6 +12,7 @@ import (
 	"github.com/polisai/polis-oss/pkg/domain"
 	pipelinepkg "github.com/polisai/polis-oss/pkg/engine"
 	"github.com/polisai/polis-oss/pkg/engine/handlers"
+	"github.com/polisai/polis-oss/pkg/storage"
 )
 
 // TestDLPStreamingEmailRedaction tests DLP redaction of email addresses in streaming responses.
@@ -53,7 +54,7 @@ func TestDLPStreamingEmailRedaction(t *testing.T) {
 		Logger:   logger,
 	})
 
-	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger))
+	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger, storage.NewMemoryTokenVault()))
 	executor.RegisterHandler("egress.http", handlers.NewEgressHTTPHandler(logger))
 
 	pipeline := domain.Pipeline{
@@ -150,7 +151,7 @@ func TestDLPBufferedSSNRedaction(t *testing.T) {
 		Logger:   logger,
 	})
 
-	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger))
+	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger, storage.NewMemoryTokenVault()))
 	executor.RegisterHandler("egress.http", handlers.NewEgressHTTPHandler(logger))
 
 	pipeline := domain.Pipeline{
@@ -239,7 +240,7 @@ func TestDLPBlockingBehavior(t *testing.T) {
 		Logger:   logger,
 	})
 
-	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger))
+	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger, storage.NewMemoryTokenVault()))
 	executor.RegisterHandler("egress.http", handlers.NewEgressHTTPHandler(logger))
 
 	pipeline := domain.Pipeline{
@@ -345,7 +346,7 @@ Date: 2025-11-01
 		Logger:   logger,
 	})
 
-	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger))
+	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger, storage.NewMemoryTokenVault()))
 	executor.RegisterHandler("egress.http", handlers.NewEgressHTTPHandler(logger))
 
 	pipeline := domain.Pipeline{
@@ -467,7 +468,7 @@ func TestDLPChunkedStreamingRedaction(t *testing.T) {
 		Logger:   logger,
 	})
 
-	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger))
+	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger, storage.NewMemoryTokenVault()))
 	executor.RegisterHandler("egress.http", handlers.NewEgressHTTPHandler(logger))
 
 	pipeline := domain.Pipeline{
@@ -553,7 +554,7 @@ func TestDLPNoRulesPassthrough(t *testing.T) {
 		Logger:   logger,
 	})
 
-	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger))
+	executor.RegisterHandler("dlp", handlers.NewDLPHandler(logger, storage.NewMemoryTokenVault()))
 	executor.RegisterHandler("egress.http", handlers.NewEgressHTTPHandler(logger))
 
 	pipeline := domain.Pipeline{

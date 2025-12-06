@@ -12,6 +12,7 @@ import (
 	"github.com/polisai/polis-oss/pkg/domain"
 	"github.com/polisai/polis-oss/pkg/engine/runtime"
 	"github.com/polisai/polis-oss/pkg/policy/dlp"
+	"github.com/polisai/polis-oss/pkg/storage"
 )
 
 // DLPHandler configures streaming response inspection for the egress stage.
@@ -26,6 +27,7 @@ import (
 type DLPHandler struct {
 	logger   *slog.Logger
 	registry *dlp.Registry
+	vault    storage.TokenVault
 }
 
 const (
@@ -34,19 +36,19 @@ const (
 )
 
 // NewDLPHandler constructs a DLP handler instance.
-func NewDLPHandler(logger *slog.Logger) *DLPHandler {
-	return NewDLPHandlerWithRegistry(logger, dlp.GlobalRegistry())
+func NewDLPHandler(logger *slog.Logger, vault storage.TokenVault) *DLPHandler {
+	return NewDLPHandlerWithRegistry(logger, vault, dlp.GlobalRegistry())
 }
 
 // NewDLPHandlerWithRegistry constructs a DLP handler with a custom registry (useful for tests).
-func NewDLPHandlerWithRegistry(logger *slog.Logger, registry *dlp.Registry) *DLPHandler {
+func NewDLPHandlerWithRegistry(logger *slog.Logger, vault storage.TokenVault, registry *dlp.Registry) *DLPHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if registry == nil {
 		registry = dlp.GlobalRegistry()
 	}
-	return &DLPHandler{logger: logger, registry: registry}
+	return &DLPHandler{logger: logger, registry: registry, vault: vault}
 }
 
 // Execute stores DLP configuration for downstream egress processing.
@@ -55,6 +57,9 @@ func (h *DLPHandler) Execute(ctx context.Context, node *domain.PipelineNode, pip
 	if err != nil {
 		return runtime.NodeResult{Outcome: runtime.OutcomeFailure}, err
 	}
+
+	// Inject the vault into the configuration so scanners/redactors can use it
+	cfg.Vault = h.vault
 
 	scope := strings.ToLower(cfg.Scope)
 	if scope == "" {
@@ -391,7 +396,7 @@ func (h *DLPHandler) updateRequestLength(pipelineCtx *domain.PipelineContext, le
 
 func isValidDLPAction(action dlp.Action) bool {
 	switch action {
-	case dlp.ActionAllow, dlp.ActionRedact, dlp.ActionBlock:
+	case dlp.ActionAllow, dlp.ActionRedact, dlp.ActionBlock, dlp.ActionTokenize:
 		return true
 	default:
 		return false

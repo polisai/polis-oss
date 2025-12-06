@@ -189,3 +189,37 @@ pipelines:
           status: 403
           code: ACCESS_DENIED
           message: Content blocked by safety policy
+
+  - id: pii-protection
+    agentId: "pii-protection"
+    protocol: http
+    triggers:
+      - type: http.request
+        match:
+          path: "/v1/chat/completions"
+    nodes:
+      - id: tokenize-pii
+        type: dlp.inspect
+        config:
+          scope: request
+          action: tokenize
+          rules:
+            - name: email-token
+              pattern: '(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
+              action: tokenize
+            - name: phone-token
+              pattern: '\b\d{3}-\d{3}-\d{4}\b'
+              action: tokenize
+        on:
+          success: egress-openai-pii
+
+      - id: egress-openai-pii
+        type: egress.http
+        config:
+          upstream_url: "https://api.openai.com"
+          upstream_mode: "static"
+        on:
+          success: detokenize-response
+      
+      - id: detokenize-response
+        type: dlp.detokenize

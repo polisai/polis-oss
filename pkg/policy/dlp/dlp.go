@@ -58,6 +58,7 @@ func NewScanner(cfg Config) (*Scanner, error) {
 		if replacement == "" && action == ActionRedact {
 			replacement = fmt.Sprintf("[REDACTED:%s]", name)
 		}
+
 		compiled = append(compiled, compiledRule{
 			name:        name,
 			expr:        expr,
@@ -66,7 +67,7 @@ func NewScanner(cfg Config) (*Scanner, error) {
 		})
 	}
 
-	return &Scanner{rules: compiled}, nil
+	return &Scanner{rules: compiled, vault: cfg.Vault}, nil
 }
 
 // NewStreamRedactor constructs a streaming redactor for incremental inspection.

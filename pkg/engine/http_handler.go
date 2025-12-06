@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/polisai/polis-oss/pkg/domain"
+	"github.com/polisai/polis-oss/pkg/storage"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -40,8 +41,9 @@ type DAGHandler struct {
 
 // DAGHandlerConfig holds configuration for creating a DAGHandler.
 type DAGHandlerConfig struct {
-	Registry *PipelineRegistry
-	Logger   *slog.Logger
+	Registry   *PipelineRegistry
+	Logger     *slog.Logger
+	TokenVault storage.TokenVault
 }
 
 // NewDAGHandler constructs an http.Handler that resolves agent pipelines from the
@@ -58,8 +60,9 @@ func NewDAGHandler(cfg DAGHandlerConfig) *DAGHandler {
 	}
 
 	executor := NewDAGExecutor(DAGExecutorConfig{
-		Registry: cfg.Registry,
-		Logger:   logger,
+		Registry:   cfg.Registry,
+		Logger:     logger,
+		TokenVault: cfg.TokenVault,
 	})
 
 	return &DAGHandler{

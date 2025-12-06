@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"regexp"
+
+	"github.com/polisai/polis-oss/pkg/storage"
 )
 
 // Action describes the directive associated with a DLP rule.
@@ -16,6 +18,8 @@ const (
 	ActionRedact Action = "redact"
 	// ActionBlock indicates the finding should cause the request/response to be rejected.
 	ActionBlock Action = "block"
+	// ActionTokenize indicates the finding should be replaced with a secure token.
+	ActionTokenize Action = "tokenize"
 )
 
 // Rule declares a DLP detection rule.
@@ -36,6 +40,7 @@ type Config struct {
 	Mode         string
 	Scope        string
 	Posture      string
+	Vault        storage.TokenVault
 }
 
 // Finding captures a single DLP match.
@@ -58,6 +63,7 @@ type Report struct {
 // Scanner applies DLP rules to textual content.
 type Scanner struct {
 	rules []compiledRule
+	vault storage.TokenVault
 }
 
 // StreamRedactor incrementally scans and redacts byte streams.
@@ -87,6 +93,7 @@ var (
 	ErrBlocked             = errors.New("dlp: content blocked by policy")
 	errMaxReadExceeded     = errors.New("dlp: maximum inspected bytes exceeded")
 	errMaxFindingsExceeded = errors.New("dlp: maximum findings exceeded")
+	errVaultMissing        = errors.New("dlp: tokenization requested but no vault configured")
 )
 
 // compiledRule is an internal representation of a Rule with a compiled regex.
@@ -100,7 +107,7 @@ type compiledRule struct {
 // isValidAction checks if the given action is a known DLP action.
 func isValidAction(action Action) bool {
 	switch action {
-	case ActionAllow, ActionRedact, ActionBlock:
+	case ActionAllow, ActionRedact, ActionBlock, ActionTokenize:
 		return true
 	default:
 		return false

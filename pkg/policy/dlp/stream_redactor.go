@@ -144,9 +144,29 @@ func (r *StreamRedactor) emitBuffer(baseOffset int64, emitLen int, dst io.Writer
 
 		// 3. Apply redactions ONLY to this chunk
 		for _, rule := range r.scanner.rules {
-			if rule.action == ActionRedact {
+			switch rule.action {
+			case ActionRedact:
 				redactedChunk = rule.expr.ReplaceAllStringFunc(redactedChunk, func(string) string {
 					return rule.replacement
+				})
+				if redactedChunk != chunkToEmit {
+					r.redactionsApplied = true
+				}
+			case ActionTokenize:
+				// Note: Tokenization in streaming might be tricky if the match spans chunks.
+				// However, `processChunk` ensures we only emit "safe" ranges where matches are complete.
+				// The `chunkToEmit` contains safe data.
+				redactedChunk = rule.expr.ReplaceAllStringFunc(redactedChunk, func(match string) string {
+					if r.scanner.vault == nil {
+						// log error? fail open?
+						return match
+					}
+					// Use context.Background() as stream redactor might not have per-chunk context easily accessible or correct
+					token, err := r.scanner.vault.Tokenize(context.Background(), match, rule.name)
+					if err != nil {
+						return match
+					}
+					return token
 				})
 				if redactedChunk != chunkToEmit {
 					r.redactionsApplied = true

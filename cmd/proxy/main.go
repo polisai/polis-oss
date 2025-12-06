@@ -198,9 +198,13 @@ type dataPlaneComponents struct {
 
 // startDataPlaneServer initializes and starts the data plane proxy server.
 func startDataPlaneServer(cfg *config.Config, registry *pipelinepkg.PipelineRegistry, engineFactory *pipelinepkg.EngineFactory) *dataPlaneComponents {
+	// Initialize Token Vault
+	tokenVault := storage.NewMemoryTokenVault()
+
 	// Build the DAG-based routing handler
 	dagHandler := pipelinepkg.NewDAGHandler(pipelinepkg.DAGHandlerConfig{
-		Registry: registry,
+		Registry:   registry,
+		TokenVault: tokenVault,
 	})
 
 	// Create HTTP server

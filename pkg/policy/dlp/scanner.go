@@ -39,6 +39,23 @@ func (s *Scanner) Scan(ctx context.Context, text string) (Report, error) {
 			redacted = rule.expr.ReplaceAllStringFunc(redacted, func(_ string) string {
 				return rule.replacement
 			})
+		case ActionTokenize:
+			var tokenizeErr error
+			redacted = rule.expr.ReplaceAllStringFunc(redacted, func(match string) string {
+				if s.vault == nil {
+					tokenizeErr = errVaultMissing
+					return match // fail-open (mostly) or handle error
+				}
+				token, err := s.vault.Tokenize(ctx, match, rule.name)
+				if err != nil {
+					tokenizeErr = err
+					return match
+				}
+				return token
+			})
+			if tokenizeErr != nil {
+				return Report{}, tokenizeErr
+			}
 		case ActionBlock:
 			if len(matches) > 0 {
 				blocked = true
