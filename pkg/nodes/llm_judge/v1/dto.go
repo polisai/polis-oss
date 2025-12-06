@@ -1,10 +1,13 @@
+// Package llmjudge provides an LLM-as-Judge node implementation for content safety evaluation.
 package llmjudge
 
 // Decision represents the safety decision from the LLM.
 type Decision string
 
 const (
-	DecisionSafe   Decision = "SAFE"
+	// DecisionSafe indicates content is safe.
+	DecisionSafe Decision = "SAFE"
+	// DecisionUnsafe indicates content violates safety policy.
 	DecisionUnsafe Decision = "UNSAFE"
 	// DecisionUnsure Decision = "UNSURE" // Future extension
 )
@@ -20,6 +23,8 @@ type LLMResponse struct {
 type HandlerConfig struct {
 	// Mode: "strict" (blocking) or "log" (async)
 	Mode string `json:"mode" yaml:"mode"`
+	// Async: if true, runs in background. Overrides Mode implication if set.
+	Async *bool `json:"async,omitempty" yaml:"async,omitempty"`
 
 	// TaskID and RulesID identify which prompts to load
 	TaskID  string `json:"taskId" yaml:"taskId"`
@@ -34,6 +39,8 @@ type HandlerConfig struct {
 }
 
 const (
+	// ModeStrict blocks unsafe content synchronously.
 	ModeStrict = "strict"
-	ModeLog    = "log"
+	// ModeLog logs safety findings asynchronously without blocking.
+	ModeLog = "log"
 )

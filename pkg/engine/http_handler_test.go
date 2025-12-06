@@ -96,12 +96,22 @@ func TestDAGHandler_writeDirectResponse_Deny(t *testing.T) {
 	if rec.Header().Get("X-Policy") != "access" {
 		t.Fatalf("expected header passthrough")
 	}
-	var body map[string]string
+	var body map[string]interface{}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("failed to decode body: %v", err)
 	}
-	if body["code"] != "ACCESS_DENIED" {
-		t.Fatalf("unexpected error code: %v", body["code"])
+
+	errorObj, ok := body["error"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected nested error object, got: %v", body)
+	}
+
+	if errorObj["code"] != "ACCESS_DENIED" {
+		t.Fatalf("unexpected error code: %v", errorObj["code"])
+	}
+
+	if errorObj["message"] != "Access denied by policy" {
+		t.Fatalf("unexpected error message: %v", errorObj["message"])
 	}
 }
 

@@ -112,6 +112,7 @@ func TestSimpleHTTPExamplePipeline(t *testing.T) {
 	lastReq := upstream.LastRequest()
 	if lastReq == nil {
 		t.Fatalf("expected upstream request to be captured")
+		return
 	}
 
 	if lastReq.URL.Path != "/v1/widgets" {

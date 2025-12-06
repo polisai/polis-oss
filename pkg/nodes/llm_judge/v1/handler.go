@@ -17,15 +17,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LLMJudgeHandler implements the NodeHandler interface for LLM-based policy evaluation.
-type LLMJudgeHandler struct {
+// Handler implements the LLM-as-Judge node for content safety evaluation.
+type Handler struct {
 	logger         *slog.Logger
 	promptProvider PromptProvider
 	httpClient     *http.Client
 }
 
 // NewLLMJudgeHandler creates a new handler instance.
-func NewLLMJudgeHandler(logger *slog.Logger, provider PromptProvider) *LLMJudgeHandler {
+// NewLLMJudgeHandler creates a new LLM Judge handler instance.
+func NewLLMJudgeHandler(logger *slog.Logger, provider PromptProvider) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -34,7 +35,7 @@ func NewLLMJudgeHandler(logger *slog.Logger, provider PromptProvider) *LLMJudgeH
 		provider = NewLocalPromptProvider("prompts")
 	}
 
-	return &LLMJudgeHandler{
+	return &Handler{
 		logger:         logger,
 		promptProvider: provider,
 		httpClient:     &http.Client{Timeout: 30 * time.Second},
@@ -42,7 +43,7 @@ func NewLLMJudgeHandler(logger *slog.Logger, provider PromptProvider) *LLMJudgeH
 }
 
 // Execute evaluates the message against the rules using an LLM.
-func (h *LLMJudgeHandler) Execute(ctx context.Context, node *domain.PipelineNode, pipelineCtx *domain.PipelineContext) (runtime.NodeResult, error) {
+func (h *Handler) Execute(ctx context.Context, node *domain.PipelineNode, pipelineCtx *domain.PipelineContext) (runtime.NodeResult, error) {
 	// 1. Parse Config
 	cfg, err := h.parseConfig(node.Config)
 	if err != nil {
@@ -50,11 +51,7 @@ func (h *LLMJudgeHandler) Execute(ctx context.Context, node *domain.PipelineNode
 	}
 
 	// 2. Resolve Content to Check
-	content, err := h.resolveTargetContent(cfg.Target, pipelineCtx)
-	if err != nil {
-		h.logger.Error("llm_judge: failed to resolve target", "target", cfg.Target, "error", err)
-		return runtime.Failure(map[string]any{"error": err.Error()}), nil
-	}
+	content := h.resolveTargetContent(cfg.Target, pipelineCtx)
 	if content == "" {
 		// No content to check is considered safe (or skip)
 		return runtime.Success(nil), nil
@@ -72,8 +69,16 @@ func (h *LLMJudgeHandler) Execute(ctx context.Context, node *domain.PipelineNode
 	// 4. Construct Final Prompt (Logic moved to separate method for clarity)
 	finalPrompt := h.constructPrompt(taskPrompt, rulesPrompt, content)
 
-	// 5. Execute Logic based on Mode
-	if cfg.Mode == ModeLog {
+	// 5. Determine Execution Mode
+	isAsync := false
+	if cfg.Async != nil {
+		isAsync = *cfg.Async
+	} else {
+		// Default behavior based on Mode
+		isAsync = (cfg.Mode == ModeLog)
+	}
+
+	if isAsync {
 		// ASYNC / LOG MODE
 		// Fire-and-forget: we don't block the request.
 		go func() {
@@ -119,7 +124,7 @@ func (h *LLMJudgeHandler) Execute(ctx context.Context, node *domain.PipelineNode
 	}), nil
 }
 
-func (h *LLMJudgeHandler) parseConfig(raw map[string]any) (HandlerConfig, error) {
+func (h *Handler) parseConfig(raw map[string]any) (HandlerConfig, error) {
 	// Marshal/Unmarshal to cleanly map standard map[string]any to struct
 	// This creates a slight overhead but ensures consistency with JSON/YAML tags
 	data, err := yaml.Marshal(raw)
@@ -149,7 +154,7 @@ func (h *LLMJudgeHandler) parseConfig(raw map[string]any) (HandlerConfig, error)
 	return cfg, nil
 }
 
-func (h *LLMJudgeHandler) resolveTargetContent(target string, ctx *domain.PipelineContext) (string, error) {
+func (h *Handler) resolveTargetContent(target string, ctx *domain.PipelineContext) string {
 	// Support simple dot notation for now: request.body, response.body
 	// In a real implementation this would ideally share the expression evaluator
 	switch target {
@@ -158,25 +163,25 @@ func (h *LLMJudgeHandler) resolveTargetContent(target string, ctx *domain.Pipeli
 		// Assuming body is available or we need to add Body access to PipelineContext.
 		// For now, looking in Variables as a fallback pattern used in some systems
 		if val, ok := ctx.Variables["request.body_text"]; ok {
-			return fmt.Sprint(val), nil
+			return fmt.Sprint(val)
 		}
 		// Or assume it's simulated in variables for MVP
-		return "", nil // Empty/Not found
+		return "" // Empty/Not found
 	case "response.body":
 		if val, ok := ctx.Variables["response.body_text"]; ok {
-			return fmt.Sprint(val), nil
+			return fmt.Sprint(val)
 		}
-		return "", nil
+		return ""
 	default:
 		// Try generic variable lookup
 		if val, ok := ctx.Variables[target]; ok {
-			return fmt.Sprint(val), nil
+			return fmt.Sprint(val)
 		}
 	}
-	return "", nil
+	return ""
 }
 
-func (h *LLMJudgeHandler) constructPrompt(task, rules, input string) string {
+func (h *Handler) constructPrompt(task, rules, input string) string {
 	// Simple concatenation. A more robust system uses templates.
 	var sb strings.Builder
 	sb.WriteString("TASK:\n")
@@ -192,7 +197,7 @@ func (h *LLMJudgeHandler) constructPrompt(task, rules, input string) string {
 
 // callLLM executes the request to the configured LLM API.
 // Note: This implementation assumes an OpenAI-compatible completion API for MVP.
-func (h *LLMJudgeHandler) callLLM(ctx context.Context, cfg HandlerConfig, prompt string) (LLMResponse, error) {
+func (h *Handler) callLLM(ctx context.Context, cfg HandlerConfig, prompt string) (LLMResponse, error) {
 	// Use configured model or default
 	model := cfg.Model
 	if model == "" {
@@ -225,7 +230,11 @@ func (h *LLMJudgeHandler) callLLM(ctx context.Context, cfg HandlerConfig, prompt
 	if err != nil {
 		return LLMResponse{}, fmt.Errorf("llm request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			h.logger.Warn("failed to close response body", "error", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -272,7 +281,7 @@ func (h *LLMJudgeHandler) callLLM(ctx context.Context, cfg HandlerConfig, prompt
 	return result, nil
 }
 
-func (h *LLMJudgeHandler) logDecision(decision LLMResponse, cfg HandlerConfig, mode string) {
+func (h *Handler) logDecision(decision LLMResponse, cfg HandlerConfig, mode string) {
 	h.logger.Info("llm_judge decision",
 		"mode", mode,
 		"decision", decision.Decision,

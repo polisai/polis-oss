@@ -1,0 +1,169 @@
+pipelines:
+  # Default Pipeline (Strict) - Handles requests with no X-Agent-ID
+  - id: default-strict
+    agentId: "*"
+    protocol: http
+    triggers:
+      - type: http.request
+        match:
+          path: "/v1/chat/completions"
+    nodes:
+      - id: safety-check-default
+        type: llm.judge
+        config:
+          mode: strict
+          async: false
+          taskId: safety_check
+          rulesId: strict_safety
+          target: request.body
+          model: gpt-4o-mini
+          temperature: 1
+        on:
+          failure: terminal-deny-default
+          success: egress-openai-default
+      
+      - id: egress-openai-default
+        type: egress.http
+        config:
+          upstream_url: "https://api.openai.com"
+          upstream_mode: "static"
+
+  - id: llm-strict
+    agentId: "strict"
+    protocol: http
+    triggers:
+      - type: http.request
+        match:
+          path: "/v1/chat/completions"
+    nodes:
+      - id: safety-check-strict
+        type: llm.judge
+        config:
+          mode: strict
+          async: false
+          taskId: safety_check
+          rulesId: strict_safety
+          target: request.body
+          model: gpt-4o-mini
+          temperature: 1
+        on:
+          failure: terminal-deny-unsafe
+          success: egress-openai-strict
+
+      - id: egress-openai-strict
+        type: egress.http
+        config:
+          upstream_url: "https://api.openai.com"
+          upstream_mode: "static"
+
+      - id: terminal-deny-unsafe
+        type: terminal.deny
+        config:
+          status: 403
+          code: ACCESS_DENIED
+          message: Content blocked by safety policy
+
+  - id: llm-loose
+    agentId: "loose"
+    protocol: http
+    triggers:
+      - type: http.request
+        match:
+          path: "/v1/chat/completions"
+    nodes:
+      - id: safety-check-loose
+        type: llm.judge
+        config:
+          mode: log
+          async: true
+          taskId: safety_check
+          rulesId: strict_safety
+          target: request.body
+          model: gpt-4o-mini
+          temperature: 1
+        on:
+          failure: terminal-deny-unsafe # Log mode shouldn't fail, but if judge crashes...
+          success: egress-openai-loose
+      
+      - id: egress-openai-loose
+        type: egress.http
+        config:
+          upstream_url: "https://api.openai.com"
+          upstream_mode: "static"
+
+      - id: terminal-deny-unsafe
+        type: terminal.deny
+        config:
+          status: 403
+          code: ACCESS_DENIED
+          message: Content blocked by safety policy
+
+  - id: llm-strict-async
+    agentId: "strict-async"
+    protocol: http
+    triggers:
+      - type: http.request
+        match:
+          path: "/v1/chat/completions"
+    nodes:
+      - id: safety-check-strict-async
+        type: llm.judge
+        config:
+          mode: strict
+          async: true
+          taskId: safety_check
+          rulesId: strict_safety
+          target: request.body
+          model: gpt-4o-mini
+          temperature: 1
+        on:
+          failure: terminal-deny-unsafe
+          success: egress-openai-strict-async
+      
+      - id: egress-openai-strict-async
+        type: egress.http
+        config:
+          upstream_url: "https://api.openai.com"
+          upstream_mode: "static"
+
+      - id: terminal-deny-unsafe
+        type: terminal.deny
+        config:
+          status: 403
+          code: ACCESS_DENIED
+          message: Content blocked by safety policy
+
+  - id: llm-loose-sync
+    agentId: "loose-sync"
+    protocol: http
+    triggers:
+      - type: http.request
+        match:
+          path: "/v1/chat/completions"
+    nodes:
+      - id: safety-check-loose-sync
+        type: llm.judge
+        config:
+          mode: log
+          async: false
+          taskId: safety_check
+          rulesId: strict_safety
+          target: request.body
+          model: gpt-4o-mini
+          temperature: 1
+        on:
+          failure: terminal-deny-unsafe
+          success: egress-openai-loose-sync
+      
+      - id: egress-openai-loose-sync
+        type: egress.http
+        config:
+          upstream_url: "https://api.openai.com"
+          upstream_mode: "static"
+
+      - id: terminal-deny-unsafe
+        type: terminal.deny
+        config:
+          status: 403
+          code: ACCESS_DENIED
+          message: Content blocked by safety policy

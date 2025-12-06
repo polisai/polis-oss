@@ -135,6 +135,7 @@ func TestE2E_LLM_OpenAI_StreamingNoAuth(t *testing.T) {
 	lastReq := llmServer.LastRequest()
 	if lastReq == nil {
 		t.Fatal("LLM server did not receive request")
+		return
 	}
 
 	// Verify request forwarding

@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -119,7 +121,17 @@ func (h *DAGHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	pipelineCtx := h.buildPipelineContext(r, agentID)
 
 	// Store request body in context for egress handler
-	pipelineCtx.Variables["request.body"] = r.Body
+	if r.Body != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			h.logger.Error("failed to read request body", "error", err)
+		} else {
+			// Restore body for future reads
+			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			pipelineCtx.Variables["request.body"] = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			pipelineCtx.Variables["request.body_text"] = string(bodyBytes) // Explicit string availability for nodes
+		}
+	}
 	pipelineCtx.Variables["request.query"] = r.URL.RawQuery
 
 	// Execute pipeline for this session
@@ -280,22 +292,28 @@ func (h *DAGHandler) buildPipelineContext(r *http.Request, agentID string) *doma
 	return ctx
 }
 
-// writeErrorResponse writes a JSON error response.
+// writeErrorResponse writes a JSON error response in OpenAI-compatible format.
 func (h *DAGHandler) writeErrorResponse(ctx context.Context, w http.ResponseWriter, statusCode int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 
-	errResp := map[string]string{
-		"code":    code,
-		"message": message,
+	// OpenTelemetry trace ID
+	var traceID string
+	if span := trace.SpanFromContext(ctx); span != nil {
+		if sc := span.SpanContext(); sc.IsValid() {
+			traceID = sc.TraceID().String()
+		}
 	}
 
-	// Include trace ID for troubleshooting if available
-	if span := trace.SpanFromContext(ctx); span != nil {
-		sc := span.SpanContext()
-		if sc.IsValid() {
-			errResp["trace_id"] = sc.TraceID().String()
-		}
+	// OpenAI-compatible error structure
+	errResp := map[string]any{
+		"error": map[string]any{
+			"message":  message,
+			"type":     "policy_violation", // Use a generic type or map from code
+			"param":    nil,
+			"code":     code,
+			"trace_id": traceID, // Extension field
+		},
 	}
 
 	if err := json.NewEncoder(w).Encode(errResp); err != nil {

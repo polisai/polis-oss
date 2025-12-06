@@ -5,6 +5,7 @@ import (
 	"errors"
 )
 
+// ErrPromptNotFound is returned when a requested prompt file cannot be found.
 var ErrPromptNotFound = errors.New("prompt not found")
 
 // PromptProvider defines the interface for retrieving prompt templates.

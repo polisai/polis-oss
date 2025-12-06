@@ -29,7 +29,8 @@ func NewLocalPromptProvider(rootDir string) *LocalPromptProvider {
 	return &LocalPromptProvider{rootDir: rootDir}
 }
 
-func (p *LocalPromptProvider) GetPrompts(ctx context.Context, taskID, rulesID string) (string, string, error) {
+// GetPrompts retrieves task and rules prompt content from local text files.
+func (p *LocalPromptProvider) GetPrompts(_ context.Context, taskID, rulesID string) (string, string, error) {
 	if taskID == "" || rulesID == "" {
 		return "", "", fmt.Errorf("taskID and rulesID are required")
 	}
@@ -41,6 +42,7 @@ func (p *LocalPromptProvider) GetPrompts(ctx context.Context, taskID, rulesID st
 	taskPath := filepath.Join(p.rootDir, "tasks", taskID+".txt")
 	rulesPath := filepath.Join(p.rootDir, "rules", rulesID+".txt")
 
+	// #nosec G304 -- taskPath is sanitized via cleanFilename to prevent directory traversal
 	taskContent, err := os.ReadFile(taskPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -49,6 +51,7 @@ func (p *LocalPromptProvider) GetPrompts(ctx context.Context, taskID, rulesID st
 		return "", "", fmt.Errorf("failed to read task prompt: %w", err)
 	}
 
+	// #nosec G304 -- rulesPath is sanitized via cleanFilename to prevent directory traversal
 	rulesContent, err := os.ReadFile(rulesPath)
 	if err != nil {
 		if os.IsNotExist(err) {

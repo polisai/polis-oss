@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"gopkg.in/yaml.v3"
 
@@ -38,6 +39,9 @@ const (
 )
 
 func main() {
+	// Load .env file if present
+	_ = godotenv.Load()
+
 	// Parse flags
 	configPath := flag.String("config-path", defaultConfigPath, "Path to the configuration file")
 	adminAddr := flag.String("admin-listen", "", "HTTP listen address for the admin endpoints")
@@ -404,17 +408,21 @@ func loadPipelinesFromFile(registry *pipelinepkg.PipelineRegistry, filePath stri
 		return fmt.Errorf("failed to read pipeline file %s: %w", filePath, err)
 	}
 
-	spec, err := parsePipelineSpec(data, filePath)
+	specs, err := parsePipelineSpec(data, filePath)
 	if err != nil {
 		return fmt.Errorf("failed to parse pipeline file %s: %w", filePath, err)
 	}
 
-	domainPipeline := spec.ToDomain()
-	if err := registry.UpdatePipelines(context.Background(), []domain.Pipeline{domainPipeline}); err != nil {
-		return fmt.Errorf("failed to register pipeline from %s: %w", filePath, err)
+	var domainPipelines []domain.Pipeline
+	for _, spec := range specs {
+		domainPipelines = append(domainPipelines, spec.ToDomain())
+		log.Printf("Loaded pipeline %s from file: %s", spec.ID, filePath)
 	}
 
-	log.Printf("Loaded pipeline %s from file: %s", spec.ID, filePath)
+	if err := registry.UpdatePipelines(context.Background(), domainPipelines); err != nil {
+		return fmt.Errorf("failed to register pipelines from %s: %w", filePath, err)
+	}
+
 	return nil
 }
 
@@ -468,15 +476,17 @@ func loadPipelinesFromDirectory(registry *pipelinepkg.PipelineRegistry, dirPath 
 			continue
 		}
 
-		spec, err := parsePipelineSpec(data, filePath)
+		specs, err := parsePipelineSpec(data, filePath)
 		if err != nil {
 			log.Printf("Warning: failed to parse pipeline file %s: %v", filePath, err)
 			continue
 		}
 
-		domainPipeline := spec.ToDomain()
-		pipelines = append(pipelines, domainPipeline)
-		log.Printf("Loaded pipeline %s from file: %s", spec.ID, filePath)
+		for _, spec := range specs {
+			domainPipeline := spec.ToDomain()
+			pipelines = append(pipelines, domainPipeline)
+			log.Printf("Loaded pipeline %s from file: %s", spec.ID, filePath)
+		}
 	}
 
 	if len(pipelines) == 0 {
@@ -492,36 +502,62 @@ func loadPipelinesFromDirectory(registry *pipelinepkg.PipelineRegistry, dirPath 
 }
 
 // parsePipelineSpec parses a pipeline spec from JSON or YAML data.
-func parsePipelineSpec(data []byte, filePath string) (config.PipelineSpec, error) {
-	var spec config.PipelineSpec
+// It supports both a single pipeline object and a "pipelines" list object.
+func parsePipelineSpec(data []byte, filePath string) ([]config.PipelineSpec, error) {
+	var singleSpec config.PipelineSpec
+	var listSpec struct {
+		Pipelines []config.PipelineSpec `yaml:"pipelines" json:"pipelines"`
+	}
 
 	ext := strings.ToLower(filepath.Ext(filePath))
+	isList := false
+
+	// Try parsing as list first
 	switch ext {
 	case ".json":
-		if err := json.Unmarshal(data, &spec); err != nil {
-			return spec, fmt.Errorf("JSON unmarshal failed: %w", err)
+		if err := json.Unmarshal(data, &listSpec); err == nil && len(listSpec.Pipelines) > 0 {
+			isList = true
+		} else {
+			// Fallback to single
+			if err := json.Unmarshal(data, &singleSpec); err != nil {
+				return nil, fmt.Errorf("JSON unmarshal failed: %w", err)
+			}
 		}
 	case ".yaml", ".yml":
-		if err := yaml.Unmarshal(data, &spec); err != nil {
-			return spec, fmt.Errorf("YAML unmarshal failed: %w", err)
+		if err := yaml.Unmarshal(data, &listSpec); err == nil && len(listSpec.Pipelines) > 0 {
+			isList = true
+		} else {
+			// Fallback to single
+			if err := yaml.Unmarshal(data, &singleSpec); err != nil {
+				return nil, fmt.Errorf("YAML unmarshal failed: %w", err)
+			}
 		}
 	default:
-		return spec, fmt.Errorf("unsupported file extension: %s (expected .json, .yaml, or .yml)", ext)
+		return nil, fmt.Errorf("unsupported file extension: %s (expected .json, .yaml, or .yml)", ext)
 	}
 
-	// Validate required fields
-	if spec.ID == "" {
-		return spec, fmt.Errorf("pipeline missing required field: id")
-	}
-	if spec.AgentID == "" {
-		return spec, fmt.Errorf("pipeline missing required field: agentId")
-	}
-	if spec.Protocol == "" {
-		return spec, fmt.Errorf("pipeline missing required field: protocol")
-	}
-	if len(spec.Nodes) == 0 {
-		return spec, fmt.Errorf("pipeline missing required field: nodes")
+	var results []config.PipelineSpec
+	if isList {
+		results = listSpec.Pipelines
+	} else {
+		results = []config.PipelineSpec{singleSpec}
 	}
 
-	return spec, nil
+	// Validate all
+	for i, spec := range results {
+		if spec.ID == "" {
+			return nil, fmt.Errorf("pipeline [%d] missing required field: id", i)
+		}
+		if spec.AgentID == "" {
+			return nil, fmt.Errorf("pipeline [%d] missing required field: agentId", i)
+		}
+		if spec.Protocol == "" {
+			return nil, fmt.Errorf("pipeline [%d] missing required field: protocol", i)
+		}
+		if len(spec.Nodes) == 0 {
+			return nil, fmt.Errorf("pipeline [%d] missing required field: nodes", i)
+		}
+	}
+
+	return results, nil
 }
