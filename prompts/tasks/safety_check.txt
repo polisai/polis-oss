@@ -1,0 +1,2 @@
+Analyze the following text required to determine if it contains any harmful, offensive, or disallowed content.
+Focus on safety and compliance with the provided rules.

@@ -1,0 +1,5 @@
+1. No hate speech or harassment.
+2. No retrieval of personal identifiable information (PII) without consent.
+3. No instructions on how to build weapons or illegal substances.
+4. No extreme violence or gore.
+5. If the content is safe, output SAFE. If unsafe, output UNSAFE.
