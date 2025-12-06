@@ -16,6 +16,7 @@ import (
 	"github.com/polisai/polis-oss/pkg/engine/expr"
 	handlers "github.com/polisai/polis-oss/pkg/engine/handlers"
 	"github.com/polisai/polis-oss/pkg/engine/runtime"
+	llmjudge "github.com/polisai/polis-oss/pkg/nodes/llm_judge/v1"
 	"github.com/polisai/polis-oss/pkg/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -1136,6 +1137,7 @@ func (e *DAGExecutor) registerDefaultHandlers() {
 	wafHandler := handlers.NewWAFHandler(e.logger)
 	dlpHandler := handlers.NewDLPHandler(e.logger)
 	policyHandler := handlers.NewPolicyHandler(e.logger)
+	llmJudgeHandler := llmjudge.NewLLMJudgeHandler(e.logger, nil)
 	allowHandler := &TerminalAllowHandler{logger: e.logger}
 
 	e.handlers.register("auth.jwt.validate", "v1", passthroughHandler, "auth.jwt.validate", "auth", "auth.passthrough")
@@ -1154,6 +1156,7 @@ func (e *DAGExecutor) registerDefaultHandlers() {
 	e.handlers.register("decision.condition", "v1", passthroughHandler, "decision.condition")
 	e.handlers.register("waf.inspect", "v1", wafHandler, "waf.inspect", "waf", "policy.waf")
 	e.handlers.register("dlp.inspect", "v1", dlpHandler, "dlp.inspect", "dlp", "policy.dlp")
+	e.handlers.register("llm.judge", "v1", llmJudgeHandler, "llm.judge", "llm_judge")
 	e.handlers.register("terminal.deny", "v1", &TerminalDenyHandler{logger: e.logger}, "terminal.deny", "terminal_deny")
 	e.handlers.register("terminal.error", "v1", &TerminalErrorHandler{logger: e.logger}, "terminal.error", "terminal_error")
 	e.handlers.register("terminal.allow", "v1", allowHandler, "terminal.allow", "terminal_allow", "allow")
