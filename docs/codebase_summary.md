@@ -101,6 +101,17 @@ graph TD
 *   **`headers.go`**: Header manipulation handler.
 *   **`body_buffer.go`**: Utilities for buffering request/response bodies.
 
+### `pkg/nodes/` - Custom Nodes
+
+#### `pkg/nodes/llm_judge/v1/` - LLM-as-Judge
+*   **`handler.go`**: Implementation of the LLM Judge node logic.
+    *   `Handler`: The main struct implementing the NodeHandler interface.
+    *   `Execute()`: Coordinates prompt construction, LLM call, and decision logic.
+    *   `resolveTargetContent()`: Extracts content to evaluate (req/resp body) from pipeline context.
+*   **`provider.go`**: Interface definitions for prompt retrieval.
+*   **`local_provider.go`**: File-based implementation of `PromptProvider` (loads from `prompts/`).
+*   **`dto.go`**: Data Transfer Objects for the Judge, including `LLMResponse`, `Decision` (SAFE/UNSAFE), and `HandlerConfig`.
+
 ### `pkg/logging/` - Logging
 
 *   **`logger.go`**: Structured logging setup.
@@ -144,8 +155,9 @@ graph TD
 *   **`integration/`**: Integration tests.
     *   `access_policy_test.go`: Tests for access control policies.
     *   `cost_policy_test.go`: Tests for cost control policies.
+    *   `simple_http_example_test.go`: Tests for basic pipeline routing and triggers (including `/v1/responses`).
 *   **`contract/`**: Contract tests (currently empty/placeholder).
 *   **`perf/`**: Performance tests.
 
 ---
-*Last Updated: 2025-11-30*
+*Last Updated: 2025-12-06*
