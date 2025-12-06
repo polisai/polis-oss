@@ -7,6 +7,9 @@ pipelines:
       - type: http.request
         match:
           path: "/v1/chat/completions"
+      - type: http.request
+        match:
+          path: "/v1/responses"
     nodes:
       - id: safety-check-default
         type: llm.judge
@@ -16,7 +19,7 @@ pipelines:
           taskId: safety_check
           rulesId: strict_safety
           target: request.body
-          model: gpt-4o-mini
+          model: gpt-5-mini
           temperature: 1
         on:
           failure: terminal-deny-default
@@ -28,6 +31,13 @@ pipelines:
           upstream_url: "https://api.openai.com"
           upstream_mode: "static"
 
+      - id: terminal-deny-default
+        type: terminal.deny
+        config:
+          status: 403
+          code: ACCESS_DENIED
+          message: Content blocked by safety policy
+
   - id: llm-strict
     agentId: "strict"
     protocol: http
@@ -35,6 +45,9 @@ pipelines:
       - type: http.request
         match:
           path: "/v1/chat/completions"
+      - type: http.request
+        match:
+          path: "/v1/responses"
     nodes:
       - id: safety-check-strict
         type: llm.judge
@@ -44,7 +57,7 @@ pipelines:
           taskId: safety_check
           rulesId: strict_safety
           target: request.body
-          model: gpt-4o-mini
+          model: gpt-5-mini
           temperature: 1
         on:
           failure: terminal-deny-unsafe
@@ -70,6 +83,9 @@ pipelines:
       - type: http.request
         match:
           path: "/v1/chat/completions"
+      - type: http.request
+        match:
+          path: "/v1/responses"
     nodes:
       - id: safety-check-loose
         type: llm.judge
@@ -79,7 +95,7 @@ pipelines:
           taskId: safety_check
           rulesId: strict_safety
           target: request.body
-          model: gpt-4o-mini
+          model: gpt-5-mini
           temperature: 1
         on:
           failure: terminal-deny-unsafe # Log mode shouldn't fail, but if judge crashes...
@@ -105,6 +121,9 @@ pipelines:
       - type: http.request
         match:
           path: "/v1/chat/completions"
+      - type: http.request
+        match:
+          path: "/v1/responses"
     nodes:
       - id: safety-check-strict-async
         type: llm.judge
@@ -114,7 +133,7 @@ pipelines:
           taskId: safety_check
           rulesId: strict_safety
           target: request.body
-          model: gpt-4o-mini
+          model: gpt-5-mini
           temperature: 1
         on:
           failure: terminal-deny-unsafe
@@ -140,6 +159,9 @@ pipelines:
       - type: http.request
         match:
           path: "/v1/chat/completions"
+      - type: http.request
+        match:
+          path: "/v1/responses"
     nodes:
       - id: safety-check-loose-sync
         type: llm.judge
@@ -149,7 +171,7 @@ pipelines:
           taskId: safety_check
           rulesId: strict_safety
           target: request.body
-          model: gpt-4o-mini
+          model: gpt-5-mini
           temperature: 1
         on:
           failure: terminal-deny-unsafe
