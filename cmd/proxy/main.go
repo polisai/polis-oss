@@ -31,8 +31,6 @@ import (
 
 const (
 	defaultConfigPath        = "config.yaml"
-	defaultAdminAddress      = ":19090"
-	defaultDataPlaneAddress  = ":8090"
 	defaultServiceName       = "secure-ai-proxy"
 	telemetryShutdownTimeout = 5 * time.Second
 	gracefulShutdownTimeout  = 10 * time.Second
@@ -284,7 +282,7 @@ func loadInitialPipelines(registry *pipelinepkg.PipelineRegistry) error {
 	// Determine upstream mode from environment
 	// Modes: "proxy" (standard HTTP proxy), "custom_header" (X-Target-URL), "static" (configured URL)
 	upstreamMode := envOrDefault("UPSTREAM_MODE", "proxy")
-	upstreamURL := envOrDefault("UPSTREAM_URL", "https://localhost:8081")
+	upstreamURL := envOrDefault("UPSTREAM_URL", "https://localhost:8090")
 
 	// Parse UPSTREAM_ALLOWLIST env var (comma-separated domains/URLs)
 	// Only used for custom_header mode

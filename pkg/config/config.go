@@ -60,7 +60,7 @@ func Load(path string) (*Config, error) {
 		// Defaults
 		Server: ServerConfig{
 			AdminAddress: ":19090",
-			DataAddress:  ":8080",
+			DataAddress:  ":8090",
 		},
 		Logging: LoggingConfig{
 			Level: "info",
