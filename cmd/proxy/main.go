@@ -32,7 +32,7 @@ import (
 const (
 	defaultConfigPath        = "config.yaml"
 	defaultAdminAddress      = ":19090"
-	defaultDataPlaneAddress  = ":8080"
+	defaultDataPlaneAddress  = ":8090"
 	defaultServiceName       = "secure-ai-proxy"
 	telemetryShutdownTimeout = 5 * time.Second
 	gracefulShutdownTimeout  = 10 * time.Second
@@ -46,13 +46,10 @@ func main() {
 	configPath := flag.String("config-path", defaultConfigPath, "Path to the configuration file")
 	adminAddr := flag.String("admin-listen", "", "HTTP listen address for the admin endpoints")
 	dataAddr := flag.String("data-listen", "", "HTTP listen address for the data plane proxy")
-	redisAddr := flag.String("redis-addr", "", "Redis address")
-	controlPlaneAddr := flag.String("control-plane", "", "Control plane address")
 	otelEndpoint := flag.String("otel-endpoint", "", "OTLP endpoint")
 	logLevel := flag.String("log-level", "", "Log level")
 	pipelineFile := flag.String("pipeline-file", "", "Path to a single pipeline file")
 	pipelineDir := flag.String("pipeline-dir", "", "Path to a directory containing pipeline files")
-	useMemoryStore := flag.Bool("use-memory-store", false, "Use in-memory storage instead of Redis (for testing)")
 	bootstrapPath := flag.String("bootstrap-path", "", "Path to the bootstrap configuration snapshot")
 
 	flag.Parse()
@@ -68,12 +65,6 @@ func main() {
 	}
 	if *dataAddr != "" {
 		cfg.Server.DataAddress = *dataAddr
-	}
-	if *redisAddr != "" {
-		cfg.Redis.Address = *redisAddr
-	}
-	if *controlPlaneAddr != "" {
-		cfg.ControlPlane.Address = *controlPlaneAddr
 	}
 	if *otelEndpoint != "" {
 		cfg.Telemetry.OTLPEndpoint = *otelEndpoint
@@ -91,13 +82,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := run(ctx, cfg, *useMemoryStore, *bootstrapPath); err != nil {
+	if err := run(ctx, cfg, *bootstrapPath); err != nil {
 		log.Fatalf("application failed: %v", err)
 	}
 }
 
 // run orchestrates the application lifecycle.
-func run(ctx context.Context, cfg *config.Config, _ bool, bootstrapPath string) error {
+func run(ctx context.Context, cfg *config.Config, bootstrapPath string) error {
 	telemetryShutdown, err := initializeTelemetry(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("telemetry initialization failed: %w", err)

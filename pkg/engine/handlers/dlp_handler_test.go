@@ -9,6 +9,7 @@ import (
 	"github.com/polisai/polis-oss/pkg/domain"
 	"github.com/polisai/polis-oss/pkg/engine/runtime"
 	"github.com/polisai/polis-oss/pkg/policy/dlp"
+	"github.com/polisai/polis-oss/pkg/storage"
 )
 
 func TestDLPHandler_RequestScopeRedacts(t *testing.T) {
@@ -22,7 +23,8 @@ func TestDLPHandler_RequestScopeRedacts(t *testing.T) {
 		t.Fatalf("failed to register test rule: %v", err)
 	}
 
-	handler := NewDLPHandlerWithRegistry(nil, recordingRegistry)
+	vault := storage.NewMemoryTokenVault()
+	handler := NewDLPHandler(nil, vault)
 
 	ctx := context.Background()
 	pipelineCtx := &domain.PipelineContext{

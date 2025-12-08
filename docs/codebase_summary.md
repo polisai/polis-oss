@@ -39,9 +39,14 @@ graph TD
     *   `startServer()`: Initializes the HTTP server with the DAG handler.
 
 #### `cmd/proxy/`
-*   **`main.go`**: Legacy entry point, currently used for E2E testing.
+*   **`main.go`**: The main entry point for the Open Source binary.
     *   `run()`: Orchestrates the application lifecycle (telemetry, storage, server).
     *   `startAdminServer()`: Starts a minimal admin server for health checks.
+    
+### `prompts/` - Prompt Templates
+
+*   **`tasks/`**:  Instructions for specific agent tasks (e.g., safety checks).
+*   **`rules/`**:  Global governance rules injected into prompts.
 
 ### `pkg/config/` - Configuration Management
 
