@@ -1,0 +1,20 @@
+logging:
+  level: "info"
+
+server:
+  data_address: ":8090"
+
+pipelines:
+  - id: "default-passthrough"
+    version: 1
+    description: "Default pipeline that allows all traffic through to an echo service"
+    agentId: "*"      # Matches any Agent ID (or lack thereof)
+    protocol: "http"  # Matches standard HTTP requests
+    nodes:
+      - id: "egress"
+        type: "egress.http"
+        config:
+          # Replace this with your actual LLM provider or upstream service URL
+          upstream_url: "https://httpbin.org/anything" 
+        on:
+          success: "" # End of pipeline
