@@ -47,3 +47,4 @@ repro_dlp.go
 .DS_Store
 Thumbs.db
 
+.env
