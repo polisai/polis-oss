@@ -152,7 +152,7 @@ function Build-Project {
     $ldflags = "-s -w -X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
     $binary = Get-BinaryName
     $outputPath = Join-Path $BuildDir $binary
-    Invoke-GoCommand -Arguments @("build", "-ldflags=$ldflags", "-o", $outputPath, "./cmd/proxy") -Description "go build"
+    Invoke-GoCommand -Arguments @("build", "-ldflags=$ldflags", "-o", $outputPath, "./cmd/polis-core") -Description "go build"
     Write-Host "Binary created: $outputPath" -ForegroundColor Cyan
 }
 
@@ -227,12 +227,12 @@ function Run-PreCommit {
     Lint-Code
     Vet-Code
     Test-Project
+}
+
 function Clean-Project {
     Write-Host "Cleaning build artifacts..." -ForegroundColor Green
     if (Test-Path $BuildDir) { Remove-Item -Recurse -Force $BuildDir }
     if (Test-Path $CoverageDir) { Remove-Item -Recurse -Force $CoverageDir }
-    Invoke-GoCommand -Arguments @("clean") -Description "go clean"
-}   if (Test-Path $CoverageDir) { Remove-Item -Recurse -Force $CoverageDir }
     Invoke-GoCommand -Arguments @("clean") -Description "go clean"
 }
 
