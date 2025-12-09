@@ -1,4 +1,4 @@
-# Build script for Secure AI Proxy (PowerShell alternative to Makefile)
+# Build script for Polis (PowerShell alternative to Makefile)
 
 param(
     [string]$Command = "help"
@@ -160,7 +160,7 @@ function Install-Project {
     Write-Host "Installing binary..." -ForegroundColor Green
     $meta = Get-VersionMetadata
     $ldflags = "-s -w -X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
-    Invoke-GoCommand -Arguments @("install", "-ldflags=$ldflags", "./cmd/proxy") -Description "go install"
+    Invoke-GoCommand -Arguments @("install", "-ldflags=$ldflags", "./cmd/polis-core") -Description "go install"
 }
 
 function Format-Code {
@@ -276,7 +276,7 @@ function Security-Scan {
 }
 
 function Show-Help {
-    Write-Host "Secure AI Proxy Build Script" -ForegroundColor Cyan
+    Write-Host "Polis Build Script" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Usage: pwsh -File build.ps1 <command>" -ForegroundColor Yellow
     Write-Host "   or: powershell -ExecutionPolicy Bypass -File build.ps1 <command>" -ForegroundColor Yellow
