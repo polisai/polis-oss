@@ -12,7 +12,7 @@ The **Secure AI Proxy** (Polis) is a high-performance, protocol-aware proxy desi
 
 ```mermaid
 graph TD
-    User[User/Client] -->|Request| Core[Polis Core :8080]
+    User[User/Client] -->|Request| Core[Polis Core :8090]
     
     subgraph Polis Core
         Core -->|Load| Config[File Config Provider]

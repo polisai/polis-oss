@@ -14,7 +14,7 @@ logging:
   pretty: true   # true for human-readable console logs, false for JSON (production)
 
 server:
-  port: 8080     # (Optional) Port to listen on, defaults to 8080 if not set
+  port: 8090     # (Optional) Port to listen on, defaults to 8090 if not set
 ```
 
 ## 2. Pipeline Configuration

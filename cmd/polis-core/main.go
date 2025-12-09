@@ -22,7 +22,7 @@ import (
 
 const (
 	defaultConfigPath = "config.yaml"
-	defaultListenAddr = ":8080"
+	defaultListenAddr = ":8090"
 )
 
 func main() {

@@ -147,11 +147,12 @@ function Run-Benchmarks {
 
 function Build-Project {
     Write-Host "Building binary..." -ForegroundColor Green
-    Ensure-BuildDir
+    # Ensure-BuildDir is not needed if we output to root, but keeping it if other things use build dir.
     $meta = Get-VersionMetadata
     $ldflags = "-s -w -X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
     $binary = Get-BinaryName
-    $outputPath = Join-Path $BuildDir $binary
+    # Output to root directory instead of build directory
+    $outputPath = $binary 
     Invoke-GoCommand -Arguments @("build", "-ldflags=$ldflags", "-o", $outputPath, "./cmd/polis-core") -Description "go build"
     Write-Host "Binary created: $outputPath" -ForegroundColor Cyan
 }
@@ -253,7 +254,7 @@ function Build-DockerImage {
 function Run-DockerContainer {
     Write-Host "Starting Docker container..." -ForegroundColor Green
     $meta = Get-VersionMetadata
-    & docker run --rm -p 8080:8080 -p 9090:9090 "polis:$($meta.Version)"
+    & docker run --rm -p 8090:8090 -p 9090:9090 "polis:$($meta.Version)"
     if ($LASTEXITCODE -ne 0) {
         throw "docker run failed with exit code $LASTEXITCODE"
     }

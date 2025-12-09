@@ -56,7 +56,7 @@ func (p *proxyInstance) waitForReady(t *testing.T) {
 
 	client := &http.Client{Timeout: 250 * time.Millisecond}
 	deadline := time.Now().Add(60 * time.Second)
-	healthURL := p.dataURL() + "/healthz"
+	healthURL := p.dataURL() + "/health"
 
 	for time.Now().Before(deadline) {
 		if err := p.pollExit(); err != nil {
@@ -313,7 +313,7 @@ func createDummyConfig(t *testing.T) string {
 	content := []byte(`
 server:
   admin_address: :19090
-  data_address: :8080
+  data_address: :8090
 logging:
   level: debug
 `)

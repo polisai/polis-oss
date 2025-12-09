@@ -67,10 +67,10 @@ Run the binary:
 ./proxy.exe
 ```
 
-You should see startup logs indicating the server is listening, likely on port `8080` (depending on your config).
+You should see startup logs indicating the server is listening, likely on port `8090` (depending on your config).
 
 ```json
-{"level":"info","time":"...","message":"Starting server on :8080"}
+{"level":"info","time":"...","message":"Starting server on :8090"}
 ```
 
 ### Step 3.3: Verify Connectivity
@@ -78,7 +78,7 @@ You should see startup logs indicating the server is listening, likely on port `
 Open a new terminal and send a health check request (assuming default admin port configuration) or a simple proxy request.
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8090/health
 ```
 
 If you receive a `200 OK` response, congratulations! Your Polis OSS proxy is up and running.
