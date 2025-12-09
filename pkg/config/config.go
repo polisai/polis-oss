@@ -10,8 +10,8 @@ import (
 
 // Config holds the global configuration for the proxy.
 type Config struct {
-	Server       ServerConfig       `yaml:"server"`
-	Redis        RedisConfig        `yaml:"redis"`
+	Server ServerConfig `yaml:"server"`
+
 	Telemetry    TelemetryConfig    `yaml:"telemetry"`
 	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
 	Pipeline     PipelineConfig     `yaml:"pipeline"`
@@ -22,13 +22,6 @@ type Config struct {
 type ServerConfig struct {
 	AdminAddress string `yaml:"admin_address"`
 	DataAddress  string `yaml:"data_address"`
-}
-
-// RedisConfig holds configuration for Redis connection.
-type RedisConfig struct {
-	Address  string `yaml:"address"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
 }
 
 // TelemetryConfig holds configuration for OpenTelemetry.
@@ -90,14 +83,6 @@ func applyEnvOverrides(cfg *Config) {
 	if val := os.Getenv("PROXY_DATA_ADDR"); val != "" {
 		cfg.Server.DataAddress = val
 	}
-
-	if val := os.Getenv("PROXY_REDIS_ADDR"); val != "" {
-		cfg.Redis.Address = val
-	}
-	if val := os.Getenv("PROXY_REDIS_PASSWORD"); val != "" {
-		cfg.Redis.Password = val
-	}
-	// Note: Redis DB override is skipped for simplicity unless needed, parsing int required.
 
 	if val := os.Getenv("PROXY_OTLP_ENDPOINT"); val != "" {
 		cfg.Telemetry.OTLPEndpoint = val

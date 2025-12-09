@@ -38,10 +38,6 @@ graph TD
     *   `watchConfig()`: Subscribes to configuration updates and reloads pipelines.
     *   `startServer()`: Initializes the HTTP server with the DAG handler.
 
-#### `cmd/proxy/`
-*   **`main.go`**: Legacy entry point, currently used for E2E testing.
-    *   `run()`: Orchestrates the application lifecycle (telemetry, storage, server).
-    *   `startAdminServer()`: Starts a minimal admin server for health checks.
 
 ### `pkg/config/` - Configuration Management
 
@@ -148,4 +144,4 @@ graph TD
 *   **`perf/`**: Performance tests.
 
 ---
-*Last Updated: 2025-11-30*
+*Last Updated: 2025-12-09*
