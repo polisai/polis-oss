@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -55,7 +56,7 @@ func (p *proxyInstance) waitForReady(t *testing.T) {
 
 	client := &http.Client{Timeout: 250 * time.Millisecond}
 	deadline := time.Now().Add(60 * time.Second)
-	healthURL := p.adminURL() + "/admin/health"
+	healthURL := p.dataURL() + "/healthz"
 
 	for time.Now().Before(deadline) {
 		if err := p.pollExit(); err != nil {
@@ -154,17 +155,19 @@ func startProxy(t *testing.T, opts proxyOptions) *proxyInstance {
 
 	// Use dynamic ports
 	dataAddr := "127.0.0.1:0"
-	adminAddr := "127.0.0.1:0"
 
 	ctx, cancel := context.WithCancel(context.Background())
-	configPath := createDummyConfig(t)
+	var configPath string
+	if opts.BootstrapPath != "" {
+		configPath = opts.BootstrapPath
+	} else {
+		configPath = createDummyConfig(t)
+	}
 
 	args := []string{
-		"--config-path", configPath,
-		"--bootstrap-path", opts.BootstrapPath,
-		"--data-listen", dataAddr,
-		"--admin-listen", adminAddr,
-		"--use-memory-store",
+		"--config", configPath,
+		"--listen", dataAddr,
+		"--log-level", "debug",
 	}
 
 	//nolint:gosec // G204: Test harness needs to execute binary with dynamic arguments
@@ -210,23 +213,18 @@ func startProxy(t *testing.T, opts proxyOptions) *proxyInstance {
 
 		logs := instance.logs()
 		if instance.dataAddr == "" {
-			if addr := parsePortFromLogs(logs, "data plane server listening on"); addr != "" {
+			if addr := parsePortFromLogs(logs, "Server listening\" addr="); addr != "" {
 				instance.dataAddr = addr
 			}
 		}
-		if instance.adminAddr == "" {
-			if addr := parsePortFromLogs(logs, "admin server listening on"); addr != "" {
-				instance.adminAddr = addr
-			}
-		}
 
-		if instance.dataAddr != "" && instance.adminAddr != "" {
+		if instance.dataAddr != "" {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	if instance.dataAddr == "" || instance.adminAddr == "" {
+	if instance.dataAddr == "" {
 		t.Fatalf("failed to parse ports from logs within deadline\n%s", instance.logs())
 	}
 
@@ -241,17 +239,22 @@ func startProxy(t *testing.T, opts proxyOptions) *proxyInstance {
 
 func parsePortFromLogs(logs, prefix string) string {
 	for _, line := range strings.Split(logs, "\n") {
-		if idx := strings.Index(line, prefix); idx != -1 {
-			// Format: "... listening on 127.0.0.1:12345 ..."
-			rest := line[idx+len(prefix):]
-			fields := strings.Fields(rest)
-			if len(fields) > 0 {
-				addr := fields[0]
-				// Remove any trailing parenthesis or text
-				if idx := strings.Index(addr, "("); idx != -1 {
-					addr = addr[:idx]
+		// Look for the log message "Server listening"
+		if strings.Contains(line, "Server listening") {
+			// Try to parse as JSON
+			var logEntry map[string]interface{}
+			if err := json.Unmarshal([]byte(line), &logEntry); err == nil {
+				if addr, ok := logEntry["addr"].(string); ok {
+					return addr
 				}
-				return strings.TrimSpace(addr)
+			}
+
+			// Fallback: simple string parsing (if JSON parsing failed or strict mode/pretty somehow enabled)
+			// This matches `addr=...` or `"addr":"..."`
+			for _, field := range strings.Fields(line) {
+				if strings.HasPrefix(field, "addr=") {
+					return strings.TrimPrefix(field, "addr=")
+				}
 			}
 		}
 	}
@@ -271,7 +274,7 @@ func buildProxyBinary(t *testing.T) string {
 	binaryPath := filepath.Join(outputDir, binaryName)
 
 	//nolint:gosec // G204: Test harness needs to execute go build command
-	cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/proxy")
+	cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/polis-core")
 	cmd.Dir = root
 	cmd.Env = os.Environ()
 
