@@ -24,7 +24,7 @@ The OSS version provides the foundational engine for building secure AI gateways
 
 ```mermaid
 graph TD
-    User[User/Client] -->|Request| Core[Polis Core :8080]
+    User[User/Client] -->|Request| Core[Polis Core :8090]
     
     subgraph Polis Core
         Core -->|Load| Config[File Config Provider]
@@ -73,7 +73,7 @@ Run the binary with your configuration file:
 
 **Command Line Flags:**
 *   `--config`: Path to the configuration file (default: `config.yaml`).
-*   `--listen`: Address to listen on (default: `:8080`).
+*   `--listen`: Address to listen on (default: `:8090`).
 *   `--log-level`: Log level (`debug`, `info`, `warn`, `error`).
 *   `--pretty`: Enable pretty console logging (default: `false`).
 
@@ -86,7 +86,7 @@ The proxy is configured via a YAML file.
 ```yaml
 server:
   admin_address: ":19090" # Port for admin/health endpoints
-  data_address: ":8080"   # Main proxy traffic port
+  data_address: ":8090"   # Main proxy traffic port
 
 pipeline:
   file: "pipeline.yaml"   # Path to the pipeline definition file
@@ -187,4 +187,3 @@ This repository (`polis-oss`) contains the open-source **Data Plane** and **Core
 *   Dynamic pipeline reconfiguration.
 *   Enterprise-grade integrations.
 
-For more information, see the [Polis Enterprise Documentation](../polis-enterprise/docs).
