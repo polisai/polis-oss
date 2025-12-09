@@ -267,7 +267,7 @@ func buildProxyBinary(t *testing.T) string {
 	root := findRepoRoot(t)
 	outputDir := t.TempDir()
 
-	binaryName := "secure-ai-proxy"
+	binaryName := "polis"
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
 	}

@@ -8,24 +8,24 @@ The OSS version provides the foundational engine for building secure AI gateways
 
 ## 🚀 Key Features
 
-*   **Protocol-Aware Proxying**: Native support for HTTP 1.1 and HTTP/2 traffic routing.
-*   **Pipeline Architecture**: Define request processing flows as Directed Acyclic Graphs (DAGs), allowing for complex logic like "Auth -> WAF -> Policy -> Egress".
-*   **Policy as Code**: Integrated **Open Policy Agent (OPA)** engine allows you to write fine-grained authorization and governance logic in Rego.
-*   **WAF Node**: Built-in Web Application Firewall (WAF) node for pattern-based request inspection.
-    *   Protect against prompt injection and other attacks using regex rules.
-    *   Supports file-backed buffering for large request bodies.
-    *   Configurable "fail-open" or "fail-closed" posture.
-*   **DLP Node**: Data Loss Prevention (DLP) engine for protecting sensitive information.
-    *   Real-time streaming redaction of PII (Personally Identifiable Information).
-    *   Configurable scope (request/response) and actions (Redact, Block).
-*   **Observability**: First-class support for **OpenTelemetry** (OTLP) to trace every request and policy decision.
+* **Protocol-Aware Proxying**: Native support for HTTP 1.1 and HTTP/2 traffic routing.
+* **Pipeline Architecture**: Define request processing flows as Directed Acyclic Graphs (DAGs), allowing for complex logic like "Auth -> WAF -> Policy -> Egress".
+* **Policy as Code**: Integrated **Open Policy Agent (OPA)** engine allows you to write fine-grained authorization and governance logic in Rego.
+* **WAF Node**: Built-in Web Application Firewall (WAF) node for pattern-based request inspection.
+  * Protect against prompt injection and other attacks using regex rules.
+  * Supports file-backed buffering for large request bodies.
+  * Configurable "fail-open" or "fail-closed" posture.
+* **DLP Node**: Data Loss Prevention (DLP) engine for protecting sensitive information.
+  * Real-time streaming redaction of PII (Personally Identifiable Information).
+  * Configurable scope (request/response) and actions (Redact, Block).
+* **Observability**: First-class support for **OpenTelemetry** (OTLP) to trace every request and policy decision.
 
 ## 🏗️ Architecture
 
 ```mermaid
 graph TD
     User[User/Client] -->|Request| Core[Polis Core :8090]
-    
+
     subgraph Polis Core
         Core -->|Load| Config[File Config Provider]
         Config -->|Watch| File[config.yaml]
@@ -36,7 +36,7 @@ graph TD
         Executor -->|Node 3| Egress[Egress Handler]
         Executor -->|Telemetry| Logger[Async JSON Logger]
     end
-    
+
     Egress --> Upstream[LLM / Service]
 ```
 
@@ -60,7 +60,7 @@ cd polis-oss
 pwsh -File build.ps1 build
 
 # OR Build using Go directly
-go build -o secure-ai-proxy.exe ./cmd/polis-core
+go build -o polis.exe ./cmd/polis-core
 ```
 
 ### Running the Proxy
@@ -68,14 +68,15 @@ go build -o secure-ai-proxy.exe ./cmd/polis-core
 Run the binary with your configuration file:
 
 ```bash
-./secure-ai-proxy.exe --config config.yaml --log-level debug --pretty
+./polis.exe --config config.yaml --log-level debug --pretty
 ```
 
 **Command Line Flags:**
-*   `--config`: Path to the configuration file (default: `config.yaml`).
-*   `--listen`: Address to listen on (default: `:8090`).
-*   `--log-level`: Log level (`debug`, `info`, `warn`, `error`).
-*   `--pretty`: Enable pretty console logging (default: `false`).
+
+* `--config`: Path to the configuration file (default: `config.yaml`).
+* `--listen`: Address to listen on (default: `:8090`).
+* `--log-level`: Log level (`debug`, `info`, `warn`, `error`).
+* `--pretty`: Enable pretty console logging (default: `false`).
 
 ## ⚙️ Configuration Guide
 
@@ -108,15 +109,17 @@ logging:
 Pipelines are defined in a separate YAML file (referenced in `config.yaml`). A pipeline consists of a sequence of **nodes** that process the request.
 
 **Global Pipeline Attributes:**
-*   `id`: Unique identifier for the pipeline.
-*   `agentId`: The Agent ID this pipeline matches (or `*` for wildcard).
-*   `protocol`: Protocol to match (e.g., `http`).
+
+* `id`: Unique identifier for the pipeline.
+* `agentId`: The Agent ID this pipeline matches (or `*` for wildcard).
+* `protocol`: Protocol to match (e.g., `http`).
 
 **Node Attributes:**
-*   `id`: Unique ID for the node within the pipeline.
-*   `type`: Node type (e.g., `auth`, `waf`, `policy`, `dlp`, `egress`, `terminal.deny`).
-*   `config`: Configuration specific to the node type.
-*   `on`: Transitions based on outcome (`success`, `failure`).
+
+* `id`: Unique ID for the node within the pipeline.
+* `type`: Node type (e.g., `auth`, `waf`, `policy`, `dlp`, `egress`, `terminal.deny`).
+* `config`: Configuration specific to the node type.
+* `on`: Transitions based on outcome (`success`, `failure`).
 
 ### Example Pipeline
 
@@ -178,8 +181,8 @@ nodes:
 This repository (`polis-oss`) contains the open-source **Data Plane** and **Core Engine**.
 
 **Polis Enterprise** extends this core with:
-*   A centralized Control Plane for managing thousands of agents.
-*   Advanced Governance features (SSO, RBAC, Audit Logs).
-*   Dynamic pipeline reconfiguration.
-*   Enterprise-grade integrations.
 
+* A centralized Control Plane for managing thousands of agents.
+* Advanced Governance features (SSO, RBAC, Audit Logs).
+* Dynamic pipeline reconfiguration.
+* Enterprise-grade integrations.

@@ -24,7 +24,7 @@ func TestDLPHandler_RequestScopeRedacts(t *testing.T) {
 	}
 
 	vault := storage.NewMemoryTokenVault()
-	handler := NewDLPHandler(nil, vault)
+	handler := NewDLPHandlerWithRegistry(nil, vault, recordingRegistry)
 
 	ctx := context.Background()
 	pipelineCtx := &domain.PipelineContext{

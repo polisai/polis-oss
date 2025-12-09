@@ -1,4 +1,4 @@
-# Build script for Secure AI Proxy (PowerShell alternative to Makefile)
+# Build script for Polis (PowerShell alternative to Makefile)
 
 param(
     [string]$Command = "help"
@@ -6,9 +6,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$BuildDir = "build"
 $CoverageDir = "tests/coverage"
 $CoverageOut = "$CoverageDir/coverage.out"
 $CoverageHtml = "$CoverageDir/coverage.html"
+
+function Ensure-BuildDir {
+    if (-not (Test-Path $BuildDir)) {
+        New-Item -ItemType Directory -Path $BuildDir | Out-Null
+    }
+}
 
 function Ensure-CoverageDir {
     if (-not (Test-Path $CoverageDir)) {
@@ -50,10 +57,10 @@ function Get-VersionMetadata {
 
 function Get-BinaryName {
     if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
-        return "secure-ai-proxy.exe"
+        return "polis.exe"
     }
 
-    return "secure-ai-proxy"
+    return "polis"
 }
 
 function Invoke-GoCommand {
@@ -140,18 +147,20 @@ function Run-Benchmarks {
 
 function Build-Project {
     Write-Host "Building binary..." -ForegroundColor Green
+    Ensure-BuildDir
     $meta = Get-VersionMetadata
     $ldflags = "-s -w -X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
     $binary = Get-BinaryName
-    Invoke-GoCommand -Arguments @("build", "-ldflags=$ldflags", "-o", $binary, "./cmd/proxy") -Description "go build"
-    Write-Host "Binary created: $binary" -ForegroundColor Cyan
+    $outputPath = Join-Path $BuildDir $binary
+    Invoke-GoCommand -Arguments @("build", "-ldflags=$ldflags", "-o", $outputPath, "./cmd/polis-core") -Description "go build"
+    Write-Host "Binary created: $outputPath" -ForegroundColor Cyan
 }
 
 function Install-Project {
     Write-Host "Installing binary..." -ForegroundColor Green
     $meta = Get-VersionMetadata
     $ldflags = "-s -w -X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
-    Invoke-GoCommand -Arguments @("install", "-ldflags=$ldflags", "./cmd/proxy") -Description "go install"
+    Invoke-GoCommand -Arguments @("install", "-ldflags=$ldflags", "./cmd/polis-core") -Description "go install"
 }
 
 function Format-Code {
@@ -222,10 +231,7 @@ function Run-PreCommit {
 
 function Clean-Project {
     Write-Host "Cleaning build artifacts..." -ForegroundColor Green
-    $binary = Get-BinaryName
-    if (Test-Path $binary) { Remove-Item $binary }
-    if (Test-Path "secure-ai-proxy") { Remove-Item "secure-ai-proxy" }
-    if (Test-Path "secure-ai-proxy.exe") { Remove-Item "secure-ai-proxy.exe" }
+    if (Test-Path $BuildDir) { Remove-Item -Recurse -Force $BuildDir }
     if (Test-Path $CoverageDir) { Remove-Item -Recurse -Force $CoverageDir }
     Invoke-GoCommand -Arguments @("clean") -Description "go clean"
 }
@@ -234,7 +240,7 @@ function Build-DockerImage {
     Write-Host "Building Docker image..." -ForegroundColor Green
     $meta = Get-VersionMetadata
     & docker build `
-        -t "secure-ai-proxy:$($meta.Version)" `
+        -t "polis:$($meta.Version)" `
         --build-arg "VERSION=$($meta.Version)" `
         --build-arg "BUILD_DATE=$($meta.BuildDate)" `
         --build-arg "VCS_REF=$($meta.GitCommit)" `
@@ -247,7 +253,7 @@ function Build-DockerImage {
 function Run-DockerContainer {
     Write-Host "Starting Docker container..." -ForegroundColor Green
     $meta = Get-VersionMetadata
-    & docker run --rm -p 8080:8080 -p 9090:9090 "secure-ai-proxy:$($meta.Version)"
+    & docker run --rm -p 8080:8080 -p 9090:9090 "polis:$($meta.Version)"
     if ($LASTEXITCODE -ne 0) {
         throw "docker run failed with exit code $LASTEXITCODE"
     }
@@ -270,7 +276,7 @@ function Security-Scan {
 }
 
 function Show-Help {
-    Write-Host "Secure AI Proxy Build Script" -ForegroundColor Cyan
+    Write-Host "Polis Build Script" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Usage: pwsh -File build.ps1 <command>" -ForegroundColor Yellow
     Write-Host "   or: powershell -ExecutionPolicy Bypass -File build.ps1 <command>" -ForegroundColor Yellow
