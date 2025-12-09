@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"flag"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -87,19 +88,30 @@ func startServer(addr string, registry *pipelinepkg.PipelineRegistry) *http.Serv
 		Registry: registry,
 	})
 
-	handler := otelhttp.NewHandler(dagHandler, "polis.core")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.Handle("/", otelhttp.NewHandler(dagHandler, "polis.core"))
 
 	server := &http.Server{
-		Addr:         addr,
-		Handler:      handler,
+		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatal().Err(err).Str("addr", addr).Msg("Failed to bind listener")
+	}
+
+	// Log the actual resolved address (useful when addr is :0)
+	log.Info().Str("addr", listener.Addr().String()).Msg("Server listening")
+
 	go func() {
-		log.Info().Str("addr", addr).Msg("Server listening")
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Fatal().Err(err).Msg("Server failed")
 		}
 	}()
