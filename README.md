@@ -44,8 +44,8 @@ graph TD
 
 ### Prerequisites
 
-* **Go**: Version 1.25 or higher.
-* **Docker** (Optional): For containerized deployment or running dependent services like Redis (if enabled).
+*   **Go**: Version 1.25 or higher.
+*   **Docker** (Optional): For containerized deployment.
 
 ### Installation
 
@@ -101,11 +101,7 @@ telemetry:
 logging:
   level: "info"
 
-# Optional: Redis for rate limiting or caching
-redis:
-  address: "localhost:6379"
-  password: ""
-  db: 0
+
 ```
 
 ### Pipeline Configuration
