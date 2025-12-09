@@ -1,193 +1,186 @@
-# Secure AI Proxy
+# Polis - Secure AI Proxy (Open Source Core)
 
-Protocol-aware sidecar proxy for the Agent Trust Mesh. It enforces zero-trust, policy-driven governance for AI agent traffic with HTTP support in Phase 1 (protocol awareness for MCP/A2A to follow), high performance (Go + net/http), and strong observability (OpenTelemetry).
+> **Note**: This is the Open Source Core of the Polis project. For the Enterprise version, please refer to the [Polis Enterprise Documentation](../polis-enterprise/docs).
 
-## Highlights
+Polis is a high-performance, protocol-aware proxy designed to enforce zero-trust governance, policy enforcement, and observability for AI agent traffic. It acts as a centralized control plane for your AI infrastructure, intercepting requests, executing user-defined pipelines, and ensuring that all interactions with LLMs and other services are secure, compliant, and monitored.
 
-- **Security-First**: OAuth 2.1 resource server, confused-deputy mitigation, fail-closed auth
-- **Policy-Driven**: OPA/Rego engine with DLP, WAF, rate limiting, circuit breaking
-- **Protocol-Aware**: HTTP/1.1, HTTP/2, streaming (SSE, WebSocket)
-- **Observability**: OpenTelemetry with enriched traces, metrics, and logs
-- **Dynamic Config**: Zero-downtime reload via Control Plane gRPC stream
-- **High Performance**: <10ms p99 latency, 5K RPS/core target
+The OSS version provides the foundational engine for building secure AI gateways, featuring a flexible Directed Acyclic Graph (DAG) pipeline architecture and Policy-as-Code enforcement.
 
-## Quick Start
+## 🚀 Key Features
+
+*   **Protocol-Aware Proxying**: Native support for HTTP 1.1 and HTTP/2 traffic routing.
+*   **Pipeline Architecture**: Define request processing flows as Directed Acyclic Graphs (DAGs), allowing for complex logic like "Auth -> WAF -> Policy -> Egress".
+*   **Policy as Code**: Integrated **Open Policy Agent (OPA)** engine allows you to write fine-grained authorization and governance logic in Rego.
+*   **WAF Node**: Built-in Web Application Firewall (WAF) node for pattern-based request inspection.
+    *   Protect against prompt injection and other attacks using regex rules.
+    *   Supports file-backed buffering for large request bodies.
+    *   Configurable "fail-open" or "fail-closed" posture.
+*   **DLP Node**: Data Loss Prevention (DLP) engine for protecting sensitive information.
+    *   Real-time streaming redaction of PII (Personally Identifiable Information).
+    *   Configurable scope (request/response) and actions (Redact, Block).
+*   **Observability**: First-class support for **OpenTelemetry** (OTLP) to trace every request and policy decision.
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    User[User/Client] -->|Request| Core[Polis Core :8090]
+    
+    subgraph Polis Core
+        Core -->|Load| Config[File Config Provider]
+        Config -->|Watch| File[config.yaml]
+        Core -->|Route| Registry[Pipeline Registry]
+        Registry --> Executor[DAG Executor]
+        Executor -->|Node 1| Policy[OPA Policy Handler]
+        Executor -->|Node 2| DLP[DLP Handler]
+        Executor -->|Node 3| Egress[Egress Handler]
+        Executor -->|Telemetry| Logger[Async JSON Logger]
+    end
+    
+    Egress --> Upstream[LLM / Service]
+```
+
+## 🛠️ Getting Started
 
 ### Prerequisites
 
-- Go 1.25 or later
-- Git
-- (Optional) `golangci-lint` in `PATH` for local linting. When using Go 1.25, install from the official release archive instead of `go install`.
+*   **Go**: Version 1.25 or higher.
+*   **Docker** (Optional): For containerized deployment or running dependent services like Redis (if enabled).
 
-### Build and Test
+### Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/polisai/proxy.git
-cd proxy
-
-# Download dependencies
-go mod download
-
-# Build via PowerShell helper (Windows or cross-platform PowerShell 7)
-# If pwsh is unavailable, use: powershell -ExecutionPolicy Bypass -File build.ps1 <command>
-# Windows PowerShell supports running the script directly: .\build.ps1 build
-pwsh -File build.ps1 build
-
-# Run tests (coverage files output to tests/coverage/)
-pwsh -File build.ps1 test
-
-# View coverage report
-pwsh -File build.ps1 test-coverage
-```
-
-### Running Locally
+Clone the repository and build the binary:
 
 ```bash
-# Set required environment variables
-export PROXY_LOG_LEVEL=debug
-export OIDC_ISSUER=https://your-issuer.example.com
-export OIDC_AUDIENCE=https://api.example.com
+# Clone the repo
+git clone https://github.com/polisai/polis-oss.git
+cd polis-oss
 
-# Run the proxy
-./secure-ai-proxy
+# Build using Go
+go build -o secure-ai-proxy.exe ./cmd/polis-core
 ```
 
-For detailed setup and development instructions, see [AGENTS.md](AGENTS.md).
+### Running the Proxy
 
-## Documentation
+Run the binary with your configuration file:
 
-### Core Documentation
-- [Architecture Overview](docs/proxy-architecture-overview.md) - System design and components
-- [Requirements](docs/proxy-requirements.md) - Functional and non-functional requirements
-- [Protocol Awareness](docs/proxy-protocols-awareness.md) - Protocol support details
-- [Performance Validation](docs/performance-validation.md) - Performance targets and validation
-- [Policy & Telemetry Examples](docs/policy-and-telemetry-examples.md) - Configuration examples
-
-### Development Guides
-- [AGENTS.md](AGENTS.md) - Agent-focused development guide
-- [CONTRIBUTING.md](CONTRIBUTING.md) - How to contribute to this project
-
-### Specifications
-- [Feature Spec](specs/001-secure-ai-proxy/spec.md) - Detailed feature specification
-- [Task Tracking](specs/001-secure-ai-proxy/tasks.md) - Implementation progress
-- [API Contracts](specs/001-secure-ai-proxy/contracts/openapi.yaml) - OpenAPI specification
-
-## CI/CD Pipeline
-
-This project uses a comprehensive CI/CD pipeline with multiple quality gates:
-
-### Quality Gates (All PRs)
-- ✅ Code formatting (gofmt)
-- ✅ Static analysis (golangci-lint, go vet)
-- ✅ Security scanning (Gosec, Snyk, TruffleHog)
-- ✅ Unit tests with race detector
-- ✅ 70% minimum test coverage (Phase 1 baseline)
-
-### Security Scanning
-- **Gosec**: Go-specific security analysis
-- **Snyk**: SAST (code) and SCA (dependencies)
-- **TruffleHog**: Secret detection
-- **License Compliance**: Blocks GPL variants
-
-### Automated Workflows
-- **CI Pipeline**: Runs on every PR and push
-- **Performance Tests**: Daily automated benchmarks
-- **Dependency Updates**: Weekly automated PRs
-
-## Project Structure
-
-```
-├── cmd/
-│   └── proxy/             # Application entry point (main.go)
-├── internal/              # Private packages (Go compiler-enforced)
-│   ├── domain/            # Pure business logic (zero external deps)
-│   ├── admin/             # Admin HTTP API (health, metrics, reload)
-│   ├── auth/              # Authentication & authorization
-│   ├── routing/           # Request routing & pipeline orchestration
-│   ├── policy/            # OPA/Rego policy engine & enforcement
-│   │   ├── dlp/           # Data Loss Prevention filters
-│   │   └── waf/           # Web Application Firewall filters
-│   ├── governance/        # Rate limiting, circuit breakers, retries
-│   ├── controlplane/      # Control plane communication & config reload
-│   ├── stream/            # Streaming support (SSE, WebSocket)
-│   ├── telemetry/         # OpenTelemetry integration
-│   └── tls/               # mTLS policy enforcement
-├── tests/
-│   ├── unit/              # Package-level unit tests
-│   ├── integration/       # End-to-end integration tests
-│   ├── e2e/               # Full binary E2E tests
-│   ├── contract/          # API contract tests
-│   ├── fuzz/              # Fuzz testing
-│   └── perf/              # Performance benchmarks
-├── docs/                  # Documentation
-├── specs/                 # Feature specifications
-└── .github/workflows/     # CI/CD workflows
+```bash
+./secure-ai-proxy.exe --config config.yaml --log-level debug --pretty
 ```
 
-**Architecture Notes**:
-- `internal/` packages are private by Go compiler (cannot be imported by external projects)
-- `domain/` layer has zero external dependencies (only stdlib: context, errors, time)
-- Clear separation: domain → infrastructure → application layers
+**Command Line Flags:**
+*   `--config`: Path to the configuration file (default: `config.yaml`).
+*   `--listen`: Address to listen on (default: `:8090`).
+*   `--log-level`: Log level (`debug`, `info`, `warn`, `error`).
+*   `--pretty`: Enable pretty console logging (default: `false`).
 
-## Technology Stack
+## ⚙️ Configuration Guide
 
-- **Language**: Go 1.25
-- **HTTP**: net/http (HTTP/1.1, HTTP/2)
-- **gRPC**: Control Plane communication
-- **Auth**: JWT/OIDC (golang-jwt, lestrrat-go/jwx)
-- **Policy**: OPA/Rego
-- **Telemetry**: OpenTelemetry (OTLP)
-- **Config**: YAML (gopkg.in/yaml.v3)
+The proxy is configured via a YAML file.
 
-## Contributing
+### `config.yaml` Schema
 
-We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) before submitting PRs.
+```yaml
+server:
+  admin_address: ":19090" # Port for admin/health endpoints
+  data_address: ":8090"   # Main proxy traffic port
 
-### Before You Contribute
+pipeline:
+  file: "pipeline.yaml"   # Path to the pipeline definition file
+  # mod: "dir"            # Alternatively, load from a directory
+  # dir: "./pipelines"
 
-1. Read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
-2. Check [open issues](https://github.com/polisai/proxy/issues)
-3. Review the [feature spec](specs/001-secure-ai-proxy/spec.md)
-4. Follow the [constitution](.specify/memory/constitution.md)
+telemetry:
+  otlp_endpoint: "localhost:4317" # OpenTelemetry collector endpoint
+  insecure: true
 
-### Development Workflow
+logging:
+  level: "info"
 
-1. Fork the repository
-2. Create a feature branch (`feature/your-feature`)
-3. Make your changes with tests
-4. Run quality checks locally
-5. Submit a pull request
+# Optional: Redis for rate limiting or caching
+redis:
+  address: "localhost:6379"
+  password: ""
+  db: 0
+```
 
-### Quality Requirements
+### Pipeline Configuration
 
-All contributions must:
-- ✅ Pass all CI checks
-- ✅ Include unit tests (80%+ coverage)
-- ✅ Follow Go best practices
-- ✅ Pass security scans
-- ✅ Update relevant documentation
+Pipelines are defined in a separate YAML file (referenced in `config.yaml`). A pipeline consists of a sequence of **nodes** that process the request.
 
-## Security
+**Global Pipeline Attributes:**
+*   `id`: Unique identifier for the pipeline.
+*   `agentId`: The Agent ID this pipeline matches (or `*` for wildcard).
+*   `protocol`: Protocol to match (e.g., `http`).
 
-Security is a top priority. We enforce:
+**Node Attributes:**
+*   `id`: Unique ID for the node within the pipeline.
+*   `type`: Node type (e.g., `auth`, `waf`, `policy`, `dlp`, `egress`, `terminal.deny`).
+*   `config`: Configuration specific to the node type.
+*   `on`: Transitions based on outcome (`success`, `failure`).
 
-- **No hardcoded credentials** - Use environment variables or secret managers
-- **Modern cryptography** - TLS 1.2+, SHA-2 family, AES-256, RSA-2048+
-- **Input validation** - All external inputs sanitized
-- **Secure defaults** - Fail-closed, least privilege
-- **Regular scanning** - Automated security scans on all PRs
+### Example Pipeline
 
-See security guidelines in [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+Here is a full example of a pipeline that authenticates a user, checks for WAF attacks, enforces OPA policy, and then forwards the request.
 
-### Reporting Security Issues
+```yaml
+id: secure-llm-pipeline
+agentId: "my-agent"
+protocol: "http"
+nodes:
+  # 1. Authentication
+  - id: auth_start
+    type: auth
+    on:
+      success: waf_check
+      failure: loop_deny
 
-**DO NOT** open public issues for security vulnerabilities. Instead, email security@polisai.com with details.
+  # 2. Web Application Firewall (WAF)
+  - id: waf_check
+    type: waf
+    config:
+      action: block
+      rules:
+        - name: "Prompt Injection"
+          pattern: "(?i)(ignore\\s+(all\\s+)?previous\\s+instructions)"
+          severity: "high"
+          action: "block"
+    on:
+      success: policy_authz
+      failure: loop_deny
 
-## License
+  # 3. Policy Enforcement (OPA)
+  - id: policy_authz
+    type: policy.opa
+    config:
+      bundleRef: "authz_policy" # References a loaded policy bundle
+    on:
+      success: upstream_egress
+      failure: loop_deny
 
-[License information to be added]
+  # 4. Egress (Forward to Upstream)
+  - id: upstream_egress
+    type: egress
+    config:
+      upstream_url: "https://api.openai.com/v1"
+    on:
+      success: "" # End of pipeline
 
-## Acknowledgments
+  # Terminal Node for Failures
+  - id: loop_deny
+    type: terminal.deny
+    config:
+      code: 403
+      message: "Access Denied"
+```
 
-Built with focus on security, performance, and observability for AI agent deployments.
+## 🤝 Relation to Polis Enterprise
+
+This repository (`polis-oss`) contains the open-source **Data Plane** and **Core Engine**.
+
+**Polis Enterprise** extends this core with:
+*   A centralized Control Plane for managing thousands of agents.
+*   Advanced Governance features (SSO, RBAC, Audit Logs).
+*   Dynamic pipeline reconfiguration.
+*   Enterprise-grade integrations.
+
