@@ -31,7 +31,7 @@ import (
 
 const (
 	defaultConfigPath        = "config.yaml"
-	defaultServiceName       = "secure-ai-proxy"
+	defaultServiceName       = "polis"
 	telemetryShutdownTimeout = 5 * time.Second
 	gracefulShutdownTimeout  = 10 * time.Second
 )

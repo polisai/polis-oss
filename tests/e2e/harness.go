@@ -164,7 +164,6 @@ func startProxy(t *testing.T, opts proxyOptions) *proxyInstance {
 		"--bootstrap-path", opts.BootstrapPath,
 		"--data-listen", dataAddr,
 		"--admin-listen", adminAddr,
-		"--use-memory-store",
 	}
 
 	//nolint:gosec // G204: Test harness needs to execute binary with dynamic arguments
@@ -264,7 +263,7 @@ func buildProxyBinary(t *testing.T) string {
 	root := findRepoRoot(t)
 	outputDir := t.TempDir()
 
-	binaryName := "secure-ai-proxy"
+	binaryName := "polis"
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
 	}

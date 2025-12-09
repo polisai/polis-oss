@@ -103,8 +103,8 @@ func TestHeaderManipulationExamplePipeline(t *testing.T) {
 
 	AssertNoCredentialLeak(t, upstreamHeaders, inboundToken)
 
-	if got := upstreamHeaders.Get("X-Forwarded-By"); got != "secure-ai-proxy" {
-		t.Fatalf("expected X-Forwarded-By=secure-ai-proxy, got %q", got)
+	if got := upstreamHeaders.Get("X-Forwarded-By"); got != "polis" {
+		t.Fatalf("expected X-Forwarded-By=polis, got %q", got)
 	}
 	if got := upstreamHeaders.Get("X-Proxy-Version"); got != "1.0.0" {
 		t.Fatalf("expected X-Proxy-Version=1.0.0, got %q", got)

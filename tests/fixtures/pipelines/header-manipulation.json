@@ -35,7 +35,7 @@
       "type": "transform.headers.add",
       "config": {
         "headers": {
-          "X-Forwarded-By": "secure-ai-proxy",
+          "X-Forwarded-By": "polis",
           "X-Proxy-Version": "1.0.0",
           "X-Request-ID": "${request.id}",
           "X-Agent-ID": "${agent.id}"
