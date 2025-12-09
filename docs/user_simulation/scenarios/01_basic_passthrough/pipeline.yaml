@@ -1,0 +1,12 @@
+id: basic-passthrough
+version: 1
+agentId: "*"
+protocol: http
+nodes:
+  - id: start
+    type: egress
+    config:
+      upstream_url: "http://localhost:8081"
+      upstream_mode: static
+    on:
+      success: ""

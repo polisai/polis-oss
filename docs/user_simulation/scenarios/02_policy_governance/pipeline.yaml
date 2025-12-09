@@ -1,0 +1,25 @@
+id: policy-governance
+version: 1
+agentId: "*"
+protocol: http
+nodes:
+  - id: start
+    type: policy
+    config:
+      entrypoint: "authz/allow"
+      policy_source: "file" # loading from file
+      policy_file: "./docs/user_simulation/scenarios/02_policy_governance/policy.rego"
+    on:
+      success: egress
+      failure: deny
+
+  - id: egress
+    type: egress
+    config:
+      upstream_url: "http://localhost:8081"
+      upstream_mode: static
+    on:
+      success: ""
+
+  - id: deny
+    type: terminal.deny

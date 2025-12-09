@@ -1,0 +1,23 @@
+id: pii-protection
+version: 1
+agentId: "*"
+protocol: http
+nodes:
+  - id: start
+    type: dlp
+    config:
+      rules_file: "./docs/user_simulation/scenarios/03_pii_protection/dlp_rules.yaml"
+    on:
+      success: egress
+      failure: deny
+
+  - id: egress
+    type: egress
+    config:
+      upstream_url: "http://localhost:8081"
+      upstream_mode: static
+    on:
+      success: ""
+
+  - id: deny
+    type: terminal.deny

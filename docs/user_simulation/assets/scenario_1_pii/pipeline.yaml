@@ -1,0 +1,31 @@
+id: pii-protection-pipeline
+agentId: "*"
+protocol: http
+nodes:
+  - id: start
+    type: auth
+    on:
+      success: dlp_scan
+      failure: deny
+
+  - id: dlp_scan
+    type: dlp
+    config:
+      scope: response
+      mode: block
+      rules:
+        - "pii.ssn"
+        - "pii.credit_card"
+    on:
+      success: egress
+      failure: deny
+
+  - id: egress
+    type: egress
+    config:
+      upstream_url: https://api.openai.com
+    on:
+      success: ""
+
+  - id: deny
+    type: terminal.deny

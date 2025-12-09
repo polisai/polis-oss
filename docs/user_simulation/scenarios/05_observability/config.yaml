@@ -1,0 +1,11 @@
+logging:
+  level: debug
+  pretty: true
+
+telemetry:
+  otlp_endpoint: "" # Set this if you have a local collector
+  insecure: true
+
+server:
+  admin_address: ":19090"
+  data_address: ":8090"
