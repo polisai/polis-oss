@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/polisai/polis-oss/pkg/engine/runtime"
 	"github.com/polisai/polis-oss/pkg/policy/dlp"
 	"github.com/polisai/polis-oss/pkg/storage"
+	"github.com/stretchr/testify/assert/yaml"
 )
 
 // DLPHandler configures streaming response inspection for the egress stage.
@@ -120,6 +122,33 @@ func (h *DLPHandler) parseDLPConfig(config map[string]interface{}) (dlp.Config, 
 			return cfg, fmt.Errorf("dlp: invalid default action %q", action)
 		}
 		defaultAction = candidate
+	}
+
+	if rulesFile, ok := asString(config["rules_file"]); ok && rulesFile != "" {
+		h.logger.Info("dlp: loading rules from file", "path", rulesFile)
+		data, err := os.ReadFile(rulesFile)
+		if err != nil {
+			h.logger.Error("dlp: failed to read rules file", "path", rulesFile, "error", err)
+			return cfg, fmt.Errorf("dlp: failed to read rules file %q: %w", rulesFile, err)
+		}
+
+		var fileConfig struct {
+			Rules []map[string]interface{} `yaml:"rules"`
+		}
+		if err := yaml.Unmarshal(data, &fileConfig); err != nil {
+			h.logger.Error("dlp: failed to parse rules file", "path", rulesFile, "error", err)
+			return cfg, fmt.Errorf("dlp: failed to parse rules file %q: %w", rulesFile, err)
+		}
+
+		for _, ruleMap := range fileConfig.Rules {
+			rule, err := h.parseRuleDefinition(ruleMap, defaultAction)
+			if err != nil {
+				h.logger.Error("dlp: invalid rule in file", "path", rulesFile, "error", err)
+				return cfg, fmt.Errorf("dlp: invalid rule in file %q: %w", rulesFile, err)
+			}
+			cfg.Rules = append(cfg.Rules, rule)
+		}
+		h.logger.Info("dlp: successfully loaded rules from file", "path", rulesFile, "rules_count", len(fileConfig.Rules))
 	}
 
 	if rulesRaw, ok := config["rules"]; ok {
