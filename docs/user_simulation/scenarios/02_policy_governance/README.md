@@ -6,56 +6,78 @@ In this scenario, we implement a "Internal Only" policy. Requests must include a
 
 ## Configuration
 
-We introduce a `policy` node before the egress.
+We define a policy bundle and reference it in the `policy` node of the pipeline.
 
-### `pipeline.yaml`
+### `config.yaml`
 
 ```yaml
-id: policy-governance
-agentId: "*"
-protocol: http
-nodes:
-  - id: start
-    type: policy
-    config:
-      entrypoint: "authz/allow"
-      policy_file: "config/policy.rego"
-    on:
-      success: egress
-      failure: deny
+server:
+  listenParams:
+    - address: ":8090"
+      protocol: "http"
 
-  - id: egress
-    type: egress
-    config:
-      upstream_url: "http://localhost:8081"
-    on:
-      success: ""
+policyBundles:
+  - id: authz_policy
+    version: 1
+    artifacts:
+      - type: rego
+        path: "config/policy.rego"
 
-  - id: deny
-    type: terminal.deny
+pipelines:
+  - id: policy-governance
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: start
+        type: policy
+        config:
+          entrypoint: "authz/allow"
+          bundleRef: "authz_policy"
+        on:
+          success: egress
+          failure: deny
+
+      - id: egress
+        type: egress
+        config:
+          upstream_url: "http://localhost:8081"
+          upstream_mode: static
+        on:
+          success: ""
+
+      - id: deny
+        type: terminal.deny
 ```
 
-### `policy.rego`
+### `config/policy.rego`
 
 ```rego
 package authz
 
-default allow = false
+default allow = {
+    "action": "block",
+    "reason": "Default deny"
+}
 
 # Allow if the secret header matches
-allow {
-    input.request.headers["X-Corp-Auth"][0] == "secret-token-123"
+allow := {
+    "action": "allow",
+    "reason": "Request authorized"
+} if {
+    # Check if the header exists and matches the secret
+    # Headers are injected into input.attributes["http.headers"]
+    input.attributes["http.headers"]["X-Corp-Auth"][0] == "secret-token-123"
 }
 ```
 
 ## Step-by-Step Walkthrough
 
 ### 1. Setup Files
-Save `pipeline.yaml` and `policy.rego` to your config directory.
+Save `config.yaml` in the active directory and `policy.rego` to the `config/` subdirectory.
 
 ### 2. Run Polis
 ```powershell
-./proxy.exe --pipeline-file config/pipeline.yaml --data-listen :8090
+./polis.exe
 ```
 
 ### 3. Test: Blocked Request
@@ -68,6 +90,6 @@ curl -v http://localhost:8090/v1/chat/completions
 ### 4. Test: Allowed Request
 Send a request with the correct header:
 ```powershell
-curl -v -H "X-Corp-Auth: secret-token-123" http://localhost:8090/v1/chat/completions
+curl -v -Headers @{ "X-Corp-Auth" = "secret-token-123" } http://localhost:8090/v1/chat/completions
 ```
-**Result:** `200 OK` (Forwarded to upstream)
+**Result:** `200 OK` (Forwarded to upstream, may return 404 from mock server)

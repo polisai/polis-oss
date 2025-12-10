@@ -6,32 +6,39 @@ In this scenario, we use the Data Loss Prevention (DLP) node. The proxy inspects
 
 ## Configuration
 
-We introduce a `dlp` node.
+We use a standard config with a `dlp` node.
 
-### `pipeline.yaml`
+### `config.yaml`
 
 ```yaml
-id: pii-protection
-agentId: "*"
-protocol: http
-nodes:
-  - id: start
-    type: dlp
-    config:
-      rules_file: "./docs/user_simulation/scenarios/03_pii_protection/dlp_rules.yaml"
-    on:
-      success: egress
-      failure: deny # If inspection fails critically, usually success is followed even if redacted
+server:
+  listenParams:
+    - address: ":8090"
+      protocol: "http"
 
-  - id: egress
-    type: egress
-    config:
-      upstream_url: "http://localhost:8081"
-    on:
-      success: ""
+pipelines:
+  - id: pii-protection
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: start
+        type: dlp
+        config:
+          rules_file: "./docs/user_simulation/scenarios/03_pii_protection/dlp_rules.yaml" # Ensure this path is correct relative to execution dir
+        on:
+          success: egress
+          failure: deny # If inspection fails critically, usually success is followed even if redacted
 
-  - id: deny
-    type: terminal.deny
+      - id: egress
+        type: egress
+        config:
+          upstream_url: "http://localhost:8081"
+          upstream_mode: static
+        on:
+          success: ""
+
+      - id: deny
+        type: terminal.deny
 ```
 
 ### `dlp_rules.yaml`
@@ -54,21 +61,21 @@ rules:
 ## Step-by-Step Walkthrough
 
 ### 1. Setup Files
-Save the files to the `03_pii_protection` directory.
+Save `config.yaml` to the root `polis-oss` directory. Ensure `dlp_rules.yaml` exists at the path specified in the config.
 
 ### 2. Start Upstream
 Ensure your mock upstream is running (e.g., `python -m http.server 8081`).
 
 ### 3. Run Polis
 ```powershell
-./proxy.exe --pipeline-file config/pipeline.yaml --data-listen :8090
+./polis.exe
 ```
 
 ### 4. Send PII Request
 ```powershell
-curl -X POST http://localhost:8090/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "My email is john.doe@example.com and phone is 555-123-4567"}]}'
+curl -Method POST http://localhost:8090/v1/chat/completions `
+  -Headers @{ "Content-Type" = "application/json" } `
+  -Body '{"messages": [{"role": "user", "content": "My email is john.doe@example.com and phone is 555-123-4567"}]}'
 ```
 
 ### 5. Verification

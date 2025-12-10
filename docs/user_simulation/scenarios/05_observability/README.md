@@ -6,11 +6,16 @@ In this scenario, we configure high-verbosity logging and OTLP export (if availa
 
 ## Configuration
 
-We rely on `config.yaml` for system-level settings.
+We rely on `config.yaml` for system-level settings and pipeline definitions.
 
 ### `config.yaml`
 
 ```yaml
+server:
+  listenParams:
+    - address: ":8090"
+      protocol: "http"
+
 logging:
   level: debug # Maximum verbosity
   pretty: true # Readable logs for local testing
@@ -18,25 +23,38 @@ logging:
 telemetry:
   otlp_endpoint: "localhost:4317" # If running a collector, or leave empty
   insecure: true
-```
 
-### `pipeline.yaml` (Any basic flow)
-Reuse Scenario 1's pipeline.
+pipelines:
+  # Basic passthrough pipeline for demonstration
+  - id: observability-demo
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: start
+        type: egress
+        config:
+          upstream_url: "http://localhost:8081"
+          upstream_mode: static
+        on:
+          success: ""
+```
 
 ## Step-by-Step Walkthrough
 
 ### 1. Configure
-Save the logging config to `config/config.yaml`.
+Save the configuration above to `config.yaml`.
 
 ### 2. Run Polis with Debug Logs
 ```powershell
-./proxy.exe --log-level debug --data-listen :8090
+./polis.exe --log-level debug
 ```
 
 ### 3. Generate Traffic
 Send various requests (success, failure, malformed).
+### 3. Generate Traffic
+Send various requests (success, failure, malformed).
 ```powershell
-curl http://localhost:8090/v1/chat/completions
+curl -Method POST http://localhost:8090/v1/chat/completions
 ```
 
 ### 4. Inspect Logs
