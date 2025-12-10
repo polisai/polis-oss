@@ -332,3 +332,34 @@ func normalizedCompression(value string) string {
 		return trimmed
 	}
 }
+
+// LoadPolicyBundleFromDomain loads a policy bundle using a domain descriptor.
+func LoadPolicyBundleFromDomain(d domain.PolicyBundleDescriptor) (*domain.PolicyBundle, error) {
+artifacts := make([]BundleArtifactDescriptor, len(d.Artifacts))
+for i, a := range d.Artifacts {
+artifacts[i] = BundleArtifactDescriptor{
+Name:        a.Name,
+Path:        a.Path,
+Type:        a.Type,
+MediaType:   a.MediaType,
+Encoding:    a.Encoding,
+Compression: a.Compression,
+SHA256:      a.SHA256,
+Metadata:    a.Metadata,
+}
+}
+
+configDesc := PolicyBundleDescriptor{
+ID:        d.ID,
+Name:      d.Name,
+Version:   d.Version,
+Revision:  d.Revision,
+Path:      d.Path,
+SizeLimit: d.SizeLimit,
+Labels:    d.Labels,
+Artifacts: artifacts,
+}
+
+return LoadPolicyBundle(configDesc)
+}
+

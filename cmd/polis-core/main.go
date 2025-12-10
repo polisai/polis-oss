@@ -58,7 +58,7 @@ func main() {
 	pipelineRegistry := pipelinepkg.NewPipelineRegistry(engineFactory)
 
 	// Start Config Watcher
-	go watchConfig(cfgProvider, pipelineRegistry)
+	go watchConfig(cfgProvider, pipelineRegistry, policyStore)
 
 	// Start Server
 	server := startServer(*listenAddr, pipelineRegistry)
@@ -67,10 +67,26 @@ func main() {
 	waitForShutdown(server)
 }
 
-func watchConfig(provider domain.ConfigService, registry *pipelinepkg.PipelineRegistry) {
+func watchConfig(provider domain.ConfigService, registry *pipelinepkg.PipelineRegistry, policyStore storage.PolicyStore) {
 	updates := provider.Subscribe()
 	for snapshot := range updates {
 		log.Info().Int64("generation", 0).Msg("Configuration update received") // Generation is string in domain, int64 in config.Snapshot
+
+		// Update Policy Bundles
+		// IMPORTANT: Policy bundles must be loaded BEFORE pipelines that reference them
+		for _, bundleDesc := range snapshot.PolicyBundles {
+			bundle, err := config.LoadPolicyBundleFromDomain(bundleDesc)
+			if err != nil {
+				log.Error().Err(err).Str("bundle_id", bundleDesc.ID).Msg("Failed to load policy bundle")
+				continue
+			}
+
+			if err := policyStore.SavePolicyBundle(context.Background(), bundle); err != nil {
+				log.Error().Err(err).Str("bundle_id", bundleDesc.ID).Msg("Failed to save policy bundle to store")
+			} else {
+				log.Info().Str("bundle_id", bundleDesc.ID).Int("version", bundleDesc.Version).Msg("Policy bundle loaded")
+			}
+		}
 
 		// Update Pipelines
 		if len(snapshot.Pipelines) > 0 {

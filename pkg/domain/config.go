@@ -4,11 +4,36 @@ import "time"
 
 // Snapshot represents a point-in-time configuration state.
 type Snapshot struct {
-	Generation string
-	Policies   []Policy
-	Pipelines  []Pipeline
-	Governance GovernanceConfig
-	Timestamp  time.Time
+	Generation    string
+	Policies      []Policy
+	Pipelines     []Pipeline
+	PolicyBundles []PolicyBundleDescriptor
+	Governance    GovernanceConfig
+	Timestamp     time.Time
+}
+
+// PolicyBundleDescriptor describes how to obtain a policy bundle.
+type PolicyBundleDescriptor struct {
+	ID        string                     `json:"id" yaml:"id"`
+	Name      string                     `json:"name" yaml:"name"`
+	Version   int                        `json:"version" yaml:"version"`
+	Revision  string                     `json:"revision" yaml:"revision"`
+	Path      string                     `json:"path" yaml:"path"`
+	SizeLimit int64                      `json:"sizeLimit" yaml:"sizeLimit"`
+	Labels    map[string]string          `json:"labels" yaml:"labels"`
+	Artifacts []BundleArtifactDescriptor `json:"artifacts" yaml:"artifacts"`
+}
+
+// BundleArtifactDescriptor declares how to retrieve an artifact within a bundle.
+type BundleArtifactDescriptor struct {
+	Name        string            `json:"name" yaml:"name"`
+	Path        string            `json:"path" yaml:"path"`
+	Type        string            `json:"type" yaml:"type"`
+	MediaType   string            `json:"mediaType" yaml:"mediaType"`
+	Encoding    string            `json:"encoding" yaml:"encoding"`
+	Compression string            `json:"compression" yaml:"compression"`
+	SHA256      string            `json:"sha256" yaml:"sha256"`
+	Metadata    map[string]string `json:"metadata" yaml:"metadata"`
 }
 
 // GovernanceConfig holds governance policy configuration.

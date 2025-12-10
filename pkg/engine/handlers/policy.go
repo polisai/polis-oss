@@ -146,6 +146,7 @@ func (h *PolicyHandler) buildPolicyInput(pipelineCtx *domain.PipelineContext, no
 	attributes := map[string]any{
 		"http.method":                pipelineCtx.Request.Method,
 		"http.path":                  pipelineCtx.Request.Path,
+		"http.headers":               pipelineCtx.Request.Headers,
 		"protocol":                   pipelineCtx.Request.Protocol,
 		"session.tokens_in":          pipelineCtx.Session.TotalTokensIn,
 		"session.tokens_out":         pipelineCtx.Session.TotalTokensOut,

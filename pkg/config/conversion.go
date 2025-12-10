@@ -23,6 +23,11 @@ func (s Snapshot) ToDomain() (domain.Snapshot, error) {
 	// Load bundles
 	bundles := make(map[string]*domain.PolicyBundle)
 	for _, desc := range s.PolicyBundles {
+		// Populate domain.Snapshot PolicyBundles
+		domainDesc := desc.ToDomain()
+		domainSnapshot.PolicyBundles = append(domainSnapshot.PolicyBundles, domainDesc)
+
+		// Helper logic for policies that is already present...
 		bundle, err := LoadPolicyBundle(desc)
 		if err != nil {
 			return domain.Snapshot{}, fmt.Errorf("load bundle %s: %w", desc.ID, err)
@@ -190,3 +195,36 @@ func (s NodeHandlersSpec) ToDomain() domain.NodeHandlers {
 		Else:        s.Else,
 	}
 }
+
+// ToDomain converts PolicyBundleDescriptor to domain.PolicyBundleDescriptor
+func (d PolicyBundleDescriptor) ToDomain() domain.PolicyBundleDescriptor {
+artifacts := make([]domain.BundleArtifactDescriptor, len(d.Artifacts))
+for i, a := range d.Artifacts {
+artifacts[i] = a.ToDomain()
+}
+return domain.PolicyBundleDescriptor{
+ID:        d.ID,
+Name:      d.Name,
+Version:   d.Version,
+Revision:  d.Revision,
+Path:      d.Path,
+SizeLimit: d.SizeLimit,
+Labels:    d.Labels,
+Artifacts: artifacts,
+}
+}
+
+// ToDomain converts BundleArtifactDescriptor to domain.BundleArtifactDescriptor
+func (a BundleArtifactDescriptor) ToDomain() domain.BundleArtifactDescriptor {
+return domain.BundleArtifactDescriptor{
+Name:        a.Name,
+Path:        a.Path,
+Type:        a.Type,
+MediaType:   a.MediaType,
+Encoding:    a.Encoding,
+Compression: a.Compression,
+SHA256:      a.SHA256,
+Metadata:    a.Metadata,
+}
+}
+
