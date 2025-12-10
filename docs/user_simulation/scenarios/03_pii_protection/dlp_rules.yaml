@@ -1,12 +1,10 @@
 rules:
-  - id: email-redaction
-    name: "Redact Emails"
+  - name: "Redact Emails"
     pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
     action: redact
     replacement: "[EMAIL_REDACTED]"
 
-  - id: phone-redaction
-    name: "Redact US Phone Numbers"
+  - name: "Redact US Phone Numbers"
     pattern: '\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
     action: redact
     replacement: "[PHONE_REDACTED]"

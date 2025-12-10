@@ -25,6 +25,7 @@ pipelines:
         type: dlp
         config:
           rules_file: "./docs/user_simulation/scenarios/03_pii_protection/dlp_rules.yaml" # Ensure this path is correct relative to execution dir
+          scope: request
         on:
           success: egress
           failure: deny # If inspection fails critically, usually success is followed even if redacted
@@ -64,7 +65,11 @@ rules:
 Save `config.yaml` to the root `polis-oss` directory. Ensure `dlp_rules.yaml` exists at the path specified in the config.
 
 ### 2. Start Upstream
-Ensure your mock upstream is running (e.g., `python -m http.server 8081`).
+Start the mock upstream which supports POST requests:
+```powershell
+# In a separate terminal
+python mock_upstream.py
+```
 
 ### 3. Run Polis
 ```powershell

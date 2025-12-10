@@ -45,6 +45,10 @@ pipelines:
 ## Step-by-Step Walkthrough
 
 ### 1. Prerequisites
+- **Run Mock Upstream:** The judge forwards requests, so start the mock server:
+  ```powershell
+  python mock_upstream.py
+  ```
 - An OpenAI API Key (or compatible local endpoint) for the Judge.
 - Set environment variable: `$env:JUDGE_API_KEY="sk-..."`.
 
