@@ -3,6 +3,7 @@ package logging
 
 import (
 	"io"
+	"log/slog"
 	"os"
 	"time"
 
@@ -46,4 +47,32 @@ func SetupLogger(cfg Config) {
 
 	zerolog.SetGlobalLevel(level)
 	log.Logger = zerolog.New(output).With().Timestamp().Logger()
+}
+
+// NewSlogLogger creates an slog.Logger that outputs to stdout.
+func NewSlogLogger(cfg Config) *slog.Logger {
+	level := slog.LevelInfo
+	switch cfg.Level {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+
+	opts := &slog.HandlerOptions{
+		Level: level,
+	}
+
+	var handler slog.Handler
+	if cfg.Pretty {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	}
+
+	return slog.New(handler)
 }

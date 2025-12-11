@@ -149,7 +149,7 @@ function Build-Project {
     Write-Host "Building binary..." -ForegroundColor Green
     # Ensure-BuildDir is not needed if we output to root, but keeping it if other things use build dir.
     $meta = Get-VersionMetadata
-    $ldflags = "-s -w -X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
+    $ldflags = "-X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
     $binary = Get-BinaryName
     # Output to root directory instead of build directory
     $outputPath = $binary 
@@ -160,7 +160,7 @@ function Build-Project {
 function Install-Project {
     Write-Host "Installing binary..." -ForegroundColor Green
     $meta = Get-VersionMetadata
-    $ldflags = "-s -w -X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
+    $ldflags = "-X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
     Invoke-GoCommand -Arguments @("install", "-ldflags=$ldflags", "./cmd/polis-core") -Description "go install"
 }
 
