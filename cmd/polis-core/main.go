@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"flag"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -57,11 +58,17 @@ func main() {
 	engineFactory := pipelinepkg.NewEngineFactory(policyStore, nil) // Logger handled globally via zerolog adapter if needed
 	pipelineRegistry := pipelinepkg.NewPipelineRegistry(engineFactory)
 
+	// Create slog logger for HTTP handler
+	slogger := logging.NewSlogLogger(logging.Config{
+		Level:  *logLevel,
+		Pretty: *prettyLogs,
+	})
+
 	// Start Config Watcher
 	go watchConfig(cfgProvider, pipelineRegistry, policyStore)
 
 	// Start Server
-	server := startServer(*listenAddr, pipelineRegistry)
+	server := startServer(*listenAddr, pipelineRegistry, slogger)
 
 	// Wait for shutdown
 	waitForShutdown(server)
@@ -99,9 +106,10 @@ func watchConfig(provider domain.ConfigService, registry *pipelinepkg.PipelineRe
 	}
 }
 
-func startServer(addr string, registry *pipelinepkg.PipelineRegistry) *http.Server {
+func startServer(addr string, registry *pipelinepkg.PipelineRegistry, logger *slog.Logger) *http.Server {
 	dagHandler := pipelinepkg.NewDAGHandler(pipelinepkg.DAGHandlerConfig{
 		Registry: registry,
+		Logger:   logger,
 	})
 
 	mux := http.NewServeMux()
