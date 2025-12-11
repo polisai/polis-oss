@@ -1,6 +1,5 @@
 rules:
-  - id: "email-redaction"
-    name: "Redact Email Addresses"
+  - name: "Redact Email Addresses"
     description: "Detects and redacts standard email addresses."
     type: "regex"
     # Simple regex for demonstration
@@ -8,8 +7,7 @@ rules:
     action: "redact"
     enabled: true
 
-  - id: "phone-redaction"
-    name: "Redact Phone Numbers"
+  - name: "Redact Phone Numbers"
     description: "Detects US-style phone numbers."
     type: "regex"
     pattern: '\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'

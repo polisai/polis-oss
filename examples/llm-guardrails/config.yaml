@@ -10,7 +10,7 @@ pipelines:
     protocol: http
     nodes:
       - id: guardrail
-        type: llm
+        type: llm.judge
         config:
            taskId: "safety"      # Maps to prompts/tasks/safety.txt
            rulesId: "strict"     # Maps to prompts/rules/strict.txt

@@ -12,8 +12,9 @@ pipelines:
       - id: redact-pii
         type: dlp
         config:
-          rules_file: "dlp_rules.yaml" # Loads from current directory
+          rules_file: "examples/pii-redaction/dlp_rules.yaml" # Loads from current directory
           deidentify_template: "*****"
+          scope: "request"
         on:
           success: egress
           failure: egress # Fail open for this example, or route to error

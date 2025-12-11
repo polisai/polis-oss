@@ -20,18 +20,12 @@ Configures the `llm` node to use these prompts and "strict" mode, where the LLM'
 ## Running the Example
 
 ### Setup (Required for all options)
-Set your API key:
+Set your API key. Add the following line to the .env file:
 ```powershell
-$env:OPENAI_API_KEY="sk-..."
+OPENAI_API_KEY="sk-..."
 ```
 
 ## Running the Example
-
-### Setup (Required for all options)
-Set your API key:
-```powershell
-$env:OPENAI_API_KEY="sk-..."
-```
 
 ### Option 1: Run from Project Root
 1.  **Copy Prompts:** The LLM node expects a local `prompts/` directory. You must copy the `prompts` folder to the root:
