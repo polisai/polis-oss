@@ -1,26 +1,38 @@
-id: llm-judge-guardrails
-version: 1
-agentId: "*"
-protocol: http
-nodes:
-  - id: start
-    type: llm_judge
-    config:
-      provider: "openai"
-      model: "gpt-4o-mini"
-      api_key_env: "JUDGE_API_KEY"
-      prompt_template: "safety_check" # Matches filename in prompts/tasks/
-    on:
-      success: egress
-      failure: deny
+server:
+  listenParams:
+    - address: ":8090"
+      protocol: "http"
 
-  - id: egress
-    type: egress
-    config:
-      upstream_url: "http://localhost:8081"
-      upstream_mode: static
-    on:
-      success: ""
+pipelines:
+  - id: llm-judge-guardrails
+    version: 1
+    agentId: "*"
+    protocol: http
+    triggers:
+      - type: http.request
+        match:
+          path: "/v1/chat/completions"
+    nodes:
+      - id: start
+        type: llm.judge
+        config:
+          provider: "openai"
+          model: "gpt-4o-mini"
+          taskId: "safety_check"
+          rulesId: "strict_safety"
+          target: "request.body"
+          mode: "strict"
+        on:
+          success: egress
+          failure: deny
 
-  - id: deny
-    type: terminal.deny
+      - id: egress
+        type: egress.http
+        config:
+          upstream_url: "http://localhost:8081"
+          upstream_mode: static
+        on:
+          success: ""
+
+      - id: deny
+        type: terminal.deny

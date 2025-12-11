@@ -25,7 +25,10 @@ pipelines:
           provider: "openai" # Or "local" if supported by the node in OSS
           model: "gpt-4o-mini" # Or a local model name if using local-llm-demo as judge
           api_key_env: "JUDGE_API_KEY"
-          prompt_template: "safety_check"
+          taskId: "safety_check"
+          rulesId: "strict_safety"
+          target: "request.body"
+          mode: "strict"
         on:
           success: egress
           failure: deny
