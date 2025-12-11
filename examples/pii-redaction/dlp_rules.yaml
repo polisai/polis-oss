@@ -1,0 +1,17 @@
+rules:
+  - id: "email-redaction"
+    name: "Redact Email Addresses"
+    description: "Detects and redacts standard email addresses."
+    type: "regex"
+    # Simple regex for demonstration
+    pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    action: "redact"
+    enabled: true
+
+  - id: "phone-redaction"
+    name: "Redact Phone Numbers"
+    description: "Detects US-style phone numbers."
+    type: "regex"
+    pattern: '\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
+    action: "redact"
+    enabled: true

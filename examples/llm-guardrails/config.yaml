@@ -1,0 +1,40 @@
+server:
+  listenParams:
+    - address: ":8093"
+      protocol: "http"
+
+pipelines:
+  - id: llm-safety
+    description: "Uses an LLM to check input safety before forwarding."
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: guardrail
+        type: llm
+        config:
+           taskId: "safety"      # Maps to prompts/tasks/safety.txt
+           rulesId: "strict"     # Maps to prompts/rules/strict.txt
+           target: "request.body"
+           model: "gpt-4o"       # Ensure you have OPENAI_API_KEY env var set
+           temperature: 0.0
+           mode: "strict"        # Enforces JSON output used by the node to determine outcome
+
+        on:
+          success: egress
+          failure: deny
+
+      - id: egress
+        type: egress
+        config:
+          upstream_url: "https://httpbin.org/anything"
+        on:
+          success: ""
+
+      - id: deny
+        type: terminal.deny
+
+    edges:
+      # Explicitly route 'deny' outcome (if the LLM blocks)
+      - from: guardrail
+        to: deny
+        if: "outcome == 'deny'"

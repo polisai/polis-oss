@@ -1,0 +1,26 @@
+server:
+  listenParams:
+    - address: ":8092"
+      protocol: "http"
+
+pipelines:
+  - id: pii-redaction
+    description: "Redacts PII from request bodies."
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: redact-pii
+        type: dlp
+        config:
+          rules_file: "dlp_rules.yaml" # Loads from current directory
+          deidentify_template: "*****"
+        on:
+          success: egress
+          failure: egress # Fail open for this example, or route to error
+
+      - id: egress
+        type: egress
+        config:
+          upstream_url: "https://httpbin.org/anything"
+        on:
+          success: ""

@@ -1,0 +1,21 @@
+# Global logging configuration
+logging:
+  level: "debug"   # Options: debug, info, warn, error
+  format: "json"   # Options: text, json
+
+server:
+  listenParams:
+    - address: ":8095"
+      protocol: "http"
+
+pipelines:
+  - id: observability-demo
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: start
+        type: egress
+        config:
+          upstream_url: "https://httpbin.org/anything"
+        on:
+          success: ""

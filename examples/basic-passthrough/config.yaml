@@ -1,0 +1,19 @@
+server:
+  listenParams:
+    - address: ":8090"
+      protocol: "http"
+
+pipelines:
+  - id: basic-passthrough
+    description: "Forwards all traffic to the upstream service without modification."
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: start
+        type: egress
+        config:
+          # Replace with your upstream URL (e.g., http://localhost:8081 or https://httpbin.org)
+          upstream_url: "https://httpbin.org/anything"
+          upstream_mode: static
+        on:
+          success: ""
