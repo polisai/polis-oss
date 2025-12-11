@@ -96,8 +96,25 @@ func watchConfig(provider domain.ConfigService, registry *pipelinepkg.PipelineRe
 				logger.Error("Failed to update pipelines", "error", err)
 			} else {
 				logger.Info("Pipelines updated", "count", len(snapshot.Pipelines))
+				for _, p := range snapshot.Pipelines {
+					var upstream string
+					for _, n := range p.Nodes {
+						if n.Type == "egress" || n.Type == "egress.http" {
+							if u, ok := n.Config["upstream_url"].(string); ok {
+								upstream = u
+								break
+							}
+						}
+					}
+					if upstream != "" {
+						logger.Info("Pipeline active", "id", p.ID, "upstream", upstream)
+					} else {
+						logger.Info("Pipeline active", "id", p.ID)
+					}
+				}
 			}
 		}
+
 	}
 }
 
