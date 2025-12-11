@@ -155,17 +155,19 @@ func (h *Handler) parseConfig(raw map[string]any) (HandlerConfig, error) {
 }
 
 func (h *Handler) resolveTargetContent(target string, ctx *domain.PipelineContext) string {
+	var keys []string
+	for k := range ctx.Variables {
+		keys = append(keys, k)
+	}
+	h.logger.Info("llm_judge resolving content", "target", target, "available_vars", keys)
+
 	// Support simple dot notation for now: request.body, response.body
-	// In a real implementation this would ideally share the expression evaluator
 	switch target {
 	case "request.body":
-		// TODO: Access body from context. Currently PipelineContext has generic Variables.
-		// Assuming body is available or we need to add Body access to PipelineContext.
-		// For now, looking in Variables as a fallback pattern used in some systems
 		if val, ok := ctx.Variables["request.body_text"]; ok {
 			return fmt.Sprint(val)
 		}
-		// Or assume it's simulated in variables for MVP
+		h.logger.Warn("request.body_text not found in variables")
 		return "" // Empty/Not found
 	case "response.body":
 		if val, ok := ctx.Variables["response.body_text"]; ok {
@@ -213,21 +215,44 @@ func (h *Handler) callLLM(ctx context.Context, cfg HandlerConfig, prompt string)
 	}
 
 	bodyBytes, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewReader(bodyBytes))
-	if err != nil {
-		return LLMResponse{}, err
+
+	apiURL := "https://api.openai.com/v1/chat/completions"
+	if cfg.APIBase != "" {
+		apiURL = cfg.APIBase
 	}
 
-	// TODO: Auth token via env var injection or config reuse
-	// For MVP, we might assume env var OPENAI_API_KEY is standard
-	// In production, this should come from a secure CredentialProvider
-	if key := getEnv("OPENAI_API_KEY", ""); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
+	h.logger.Info("callLLM started", "api_url", apiURL, "prompt_len", len(prompt))
+
+	reqBody := OpenAIRequest{
+		Model: model,
+		Messages: []OpenAIMessage{
+			{Role: "user", Content: prompt},
+		},
+		Temperature:    cfg.Temperature,
+		ResponseFormat: map[string]string{"type": "json_object"}, // Added from original logic
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		h.logger.Error("callLLM marshal failed", "error", err)
+		return LLMResponse{}, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		h.logger.Error("callLLM create request failed", "error", err)
+		return LLMResponse{}, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Only set Authorization if not using a custom API base (mock) or if key is expected
+	if cfg.APIBase == "" {
+		req.Header.Set("Authorization", "Bearer "+os.Getenv("OPENAI_API_KEY"))
+	}
 
+	// Use the handler's httpClient instead of creating a new one
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
+		h.logger.Error("callLLM client.Do failed", "error", err)
 		return LLMResponse{}, fmt.Errorf("llm request failed: %w", err)
 	}
 	defer func() {
@@ -235,6 +260,8 @@ func (h *Handler) callLLM(ctx context.Context, cfg HandlerConfig, prompt string)
 			h.logger.Warn("failed to close response body", "error", closeErr)
 		}
 	}()
+
+	h.logger.Info("callLLM response received", "status", resp.Status)
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)

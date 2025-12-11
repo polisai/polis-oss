@@ -125,15 +125,19 @@ func (h *DAGHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Store request body in context for egress handler
 	if r.Body != nil {
+		h.logger.Info("reading request body")
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
 			h.logger.Error("failed to read request body", "error", err)
 		} else {
+			h.logger.Info("request body read", "bytes", len(bodyBytes), "content", string(bodyBytes))
 			// Restore body for future reads
 			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			pipelineCtx.Variables["request.body"] = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			pipelineCtx.Variables["request.body_text"] = string(bodyBytes) // Explicit string availability for nodes
 		}
+	} else {
+		h.logger.Info("request body is nil")
 	}
 	pipelineCtx.Variables["request.query"] = r.URL.RawQuery
 

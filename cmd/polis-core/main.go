@@ -39,7 +39,7 @@ func main() {
 	})
 	slog.SetDefault(logger)
 
-	logger.Info("Starting polis-core", "config", *configPath)
+	logger.Info("Starting polis-core", "config", *configPath, "build", "integration_test_verify")
 
 	// Setup Config Provider
 	cfgProvider, err := config.NewFileConfigProvider(*configPath)

@@ -36,6 +36,8 @@ type HandlerConfig struct {
 	// LLM config (could be expanded or ref inputs)
 	Model       string  `json:"model" yaml:"model"`
 	Temperature float64 `json:"temperature" yaml:"temperature"`
+	// APIBase allows overriding the default OpenAI API URL (e.g. for testing or other compatible providers)
+	APIBase string `json:"apiBase,omitempty" yaml:"apiBase,omitempty"`
 }
 
 const (
@@ -44,3 +46,17 @@ const (
 	// ModeLog logs safety findings asynchronously without blocking.
 	ModeLog = "log"
 )
+
+// OpenAI-compatible structs for internal use
+
+type OpenAIMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type OpenAIRequest struct {
+	Model          string            `json:"model"`
+	Messages       []OpenAIMessage   `json:"messages"`
+	Temperature    float64           `json:"temperature"`
+	ResponseFormat map[string]string `json:"response_format,omitempty"`
+}
