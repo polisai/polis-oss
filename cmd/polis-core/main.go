@@ -17,7 +17,6 @@ import (
 	pipelinepkg "github.com/polisai/polis-oss/pkg/engine"
 	"github.com/polisai/polis-oss/pkg/logging"
 	"github.com/polisai/polis-oss/pkg/storage"
-	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -34,73 +33,69 @@ func main() {
 	flag.Parse()
 
 	// Setup Logging
-	logging.SetupLogger(logging.Config{
+	logger := logging.NewLogger(logging.Config{
 		Level:  *logLevel,
 		Pretty: *prettyLogs,
 	})
+	slog.SetDefault(logger)
 
-	log.Info().Msgf("Starting polis-core with config: %s", *configPath)
+	logger.Info("Starting polis-core", "config", *configPath)
 
 	// Setup Config Provider
 	cfgProvider, err := config.NewFileConfigProvider(*configPath)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to initialize config provider")
+		logger.Error("Failed to initialize config provider", "error", err)
+		os.Exit(1)
 	}
 	defer func() {
 		if err := cfgProvider.Close(); err != nil {
-			log.Error().Err(err).Msg("Failed to close config provider")
+			logger.Error("Failed to close config provider", "error", err)
 		}
 	}()
 
 	// Initialize Core Components
 	// Note: polis-core uses in-memory storage for policies by default
 	policyStore := storage.NewMemoryPolicyStore()
-	engineFactory := pipelinepkg.NewEngineFactory(policyStore, nil) // Logger handled globally via zerolog adapter if needed
+	engineFactory := pipelinepkg.NewEngineFactory(policyStore, logger)
 	pipelineRegistry := pipelinepkg.NewPipelineRegistry(engineFactory)
 
-	// Create slog logger for HTTP handler
-	slogger := logging.NewSlogLogger(logging.Config{
-		Level:  *logLevel,
-		Pretty: *prettyLogs,
-	})
-
 	// Start Config Watcher
-	go watchConfig(cfgProvider, pipelineRegistry, policyStore)
+	go watchConfig(cfgProvider, pipelineRegistry, policyStore, logger)
 
 	// Start Server
-	server := startServer(*listenAddr, pipelineRegistry, slogger)
+	server := startServer(*listenAddr, pipelineRegistry, logger)
 
 	// Wait for shutdown
-	waitForShutdown(server)
+	waitForShutdown(server, logger)
 }
 
-func watchConfig(provider domain.ConfigService, registry *pipelinepkg.PipelineRegistry, policyStore storage.PolicyStore) {
+func watchConfig(provider domain.ConfigService, registry *pipelinepkg.PipelineRegistry, policyStore storage.PolicyStore, logger *slog.Logger) {
 	updates := provider.Subscribe()
 	for snapshot := range updates {
-		log.Info().Int64("generation", 0).Msg("Configuration update received") // Generation is string in domain, int64 in config.Snapshot
+		logger.Info("Configuration update received", "generation", 0) // Generation is string in domain, int64 in config.Snapshot
 
 		// Update Policy Bundles
 		// IMPORTANT: Policy bundles must be loaded BEFORE pipelines that reference them
 		for _, bundleDesc := range snapshot.PolicyBundles {
 			bundle, err := config.LoadPolicyBundleFromDomain(bundleDesc)
 			if err != nil {
-				log.Error().Err(err).Str("bundle_id", bundleDesc.ID).Msg("Failed to load policy bundle")
+				logger.Error("Failed to load policy bundle", "bundle_id", bundleDesc.ID, "error", err)
 				continue
 			}
 
 			if err := policyStore.SavePolicyBundle(context.Background(), bundle); err != nil {
-				log.Error().Err(err).Str("bundle_id", bundleDesc.ID).Msg("Failed to save policy bundle to store")
+				logger.Error("Failed to save policy bundle to store", "bundle_id", bundleDesc.ID, "error", err)
 			} else {
-				log.Info().Str("bundle_id", bundleDesc.ID).Int("version", bundleDesc.Version).Msg("Policy bundle loaded")
+				logger.Info("Policy bundle loaded", "bundle_id", bundleDesc.ID, "version", bundleDesc.Version)
 			}
 		}
 
 		// Update Pipelines
 		if len(snapshot.Pipelines) > 0 {
 			if err := registry.UpdatePipelines(context.Background(), snapshot.Pipelines); err != nil {
-				log.Error().Err(err).Msg("Failed to update pipelines")
+				logger.Error("Failed to update pipelines", "error", err)
 			} else {
-				log.Info().Int("count", len(snapshot.Pipelines)).Msg("Pipelines updated")
+				logger.Info("Pipelines updated", "count", len(snapshot.Pipelines))
 			}
 		}
 	}
@@ -128,32 +123,34 @@ func startServer(addr string, registry *pipelinepkg.PipelineRegistry, logger *sl
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatal().Err(err).Str("addr", addr).Msg("Failed to bind listener")
+		logger.Error("Failed to bind listener", "addr", addr, "error", err)
+		os.Exit(1)
 	}
 
 	// Log the actual resolved address (useful when addr is :0)
-	log.Info().Str("addr", listener.Addr().String()).Msg("Server listening")
+	logger.Info("Server listening", "addr", listener.Addr().String())
 
 	go func() {
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("Server failed")
+			logger.Error("Server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	return server
 }
 
-func waitForShutdown(server *http.Server) {
+func waitForShutdown(server *http.Server, logger *slog.Logger) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	sig := <-sigCh
 
-	log.Info().Str("signal", sig.String()).Msg("Shutting down")
+	logger.Info("Shutting down", "signal", sig.String())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Error().Err(err).Msg("Shutdown error")
+		logger.Error("Shutdown error", "error", err)
 	}
 }
