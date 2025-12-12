@@ -1,0 +1,105 @@
+version: '3.8'
+
+# ===========================
+# Polis OSS - Transparent Proxy Mode
+# ===========================
+#
+# For teams that want production-parity in dev:
+# Uses iptables to transparently redirect ALL traffic through the proxy.
+# The agent has ZERO awareness of the proxy (same as production sidecar).
+#
+# Note: Requires CAP_NET_ADMIN. Works best on Linux.
+
+services:
+	# Polis proxy in transparent mode
+	polis-core:
+		build:
+			context: ..
+			dockerfile: Dockerfile
+		container_name: polis-core-transparent
+		cap_add:
+			- NET_ADMIN  # Required for iptables
+		ports:
+			- "8090:8090"    # Proxy listens here
+			- "19090:19090"  # Admin endpoints
+		environment:
+			- LOG_LEVEL=info
+			- POLIS_MODE=transparent
+			- TRANSPARENT_PROXY_PORT=8090
+		volumes:
+			- ./config.yaml:/app/config.yaml:ro
+			- ./pipeline.yaml:/app/pipeline.yaml:ro
+			- ./policies:/app/policies:ro
+		command: >
+			--config /app/config.yaml
+			--log-level info
+			--pretty
+		networks:
+			- polis-net
+		healthcheck:
+			test: ["CMD", "curl", "-f", "http://localhost:19090/health"]
+			interval: 5s
+			timeout: 3s
+			retries: 3
+
+	# Sample agent - NO proxy environment variables needed!
+	agent-demo:
+		build:
+			context: ./agent-sample
+			dockerfile: Dockerfile
+		container_name: agent-demo-transparent
+		cap_add:
+			- NET_ADMIN  # For iptables rules inside the agent container
+		ports:
+			- "3001:3001"
+		environment:
+			# Notice: NO HTTP_PROXY env vars!
+			# All traffic is transparently intercepted via iptables
+			- AGENT_PORT=3001
+			- LLM_API_KEY=${OPENAI_API_KEY:-sk-demo-key}
+			- POLIS_TRANSPARENT_MODE=true
+		depends_on:
+			polis-core:
+				condition: service_healthy
+		networks:
+			- polis-net
+		healthcheck:
+			test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+			interval: 5s
+			timeout: 3s
+			retries: 3
+		# Entrypoint script sets up iptables rules
+		entrypoint:
+			- /bin/bash
+			- -c
+			- |
+				# Configure iptables to redirect outbound traffic to proxy
+				iptables -t nat -A OUTPUT -p tcp ! -d 127.0.0.1 -j REDIRECT --to-port 8090
+				sysctl -w net.ipv4.ip_forward=1
+				# Start the agent
+				exec python /app/main.py
+
+	# Observability UI
+	polis-ui:
+		build:
+			context: ./ui
+			dockerfile: Dockerfile
+		container_name: polis-ui-transparent
+		ports:
+			- "3000:3000"
+		environment:
+			- POLIS_API_URL=http://polis-core:8090
+		depends_on:
+			- polis-core
+		networks:
+			- polis-net
+		healthcheck:
+			test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+			interval: 5s
+			timeout: 3s
+			retries: 3
+
+networks:
+	polis-net:
+		driver: bridge
+
