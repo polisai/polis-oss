@@ -124,15 +124,26 @@ func startServer(addr string, registry *pipelinepkg.PipelineRegistry, logger *sl
 		Logger:   logger,
 	})
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+	// Use a manual handler to avoid ServeMux's automatic redirects (301) for CONNECT requests
+	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		// For CONNECT requests, we must bypass opentelemetry middleware because it wraps
+		// the ResponseWriter and hides the Hijack interface needed for HTTPS tunneling.
+		if r.Method == http.MethodConnect {
+			dagHandler.ServeHTTP(w, r)
+			return
+		}
+
+		// Forward everything else to the DAG handler (wrapped in OpenTelemetry)
+		otelhttp.NewHandler(dagHandler, "polis.core").ServeHTTP(w, r)
 	})
-	mux.Handle("/", otelhttp.NewHandler(dagHandler, "polis.core"))
 
 	server := &http.Server{
-		Handler:      mux,
+		Handler:      rootHandler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
