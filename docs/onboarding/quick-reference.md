@@ -86,25 +86,36 @@ make clean
 make build
 ```
 
-## 🔗 Integration
+## 🔗 Test with Your Own Agent
 
-### Set HTTP Proxy for Your Agent
+### Python (CrewAI, LangGraph, AG2, etc.)
 ```bash
 export HTTP_PROXY=http://localhost:8090
-# Your agent now routes through Polis
+export HTTPS_PROXY=http://localhost:8090
+python your_agent.py  # All LLM calls go through Polis
 ```
 
-### Common Agent Examples
+### Node.js / TypeScript
 ```bash
-# OpenAI Python SDK
 export HTTP_PROXY=http://localhost:8090
+export HTTPS_PROXY=http://localhost:8090
+node your_agent.js
+```
+
+### Windows PowerShell
+```powershell
+$env:HTTP_PROXY = "http://localhost:8090"
+$env:HTTPS_PROXY = "http://localhost:8090"
 python your_agent.py
-
-# curl-based agents
-curl -x http://localhost:8090 https://api.openai.com/v1/chat/completions
-
-# Any HTTP client with proxy support
 ```
+
+### Verify Agent Traffic
+```bash
+# Check Polis logs - you should see your agent's requests
+# Look for: INFO request received method=POST path=/v1/chat/completions
+```
+
+**Full guide:** [agent-integration-guide.md](agent-integration-guide.md)
 
 ## 📁 Key Files
 

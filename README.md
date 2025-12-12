@@ -75,7 +75,24 @@ curl.exe -x http://localhost:8090 `
 
 **Or test everything at once:** `make test-requests`
 
-**Full walkthrough:** [docs/onboarding/quickstart.md](docs/onboarding/quickstart.md)
+### **Test with Your Own Agent**
+
+Route your existing AI agents through Polis without code changes:
+
+```bash
+# Set proxy environment variables
+export HTTP_PROXY=http://localhost:8090
+export HTTPS_PROXY=http://localhost:8090
+
+# Run your agent as usual - all LLM calls go through Polis
+python your_crewai_agent.py
+```
+
+Works with CrewAI, LangGraph, AG2, OpenAI SDK, Anthropic SDK, and more.
+
+**Full guide:** [docs/onboarding/agent-integration-guide.md](docs/onboarding/agent-integration-guide.md)
+
+**Quickstart walkthrough:** [docs/onboarding/quickstart.md](docs/onboarding/quickstart.md)
 
 ## 🚀 Key Features
 

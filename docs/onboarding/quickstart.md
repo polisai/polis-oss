@@ -213,24 +213,57 @@ Check `examples/pipelines/` for more complex configurations.
 
 ## 🔗 Integration with Your Agent
 
-To use Polis with your own AI agent:
+Test Polis with your own AI agents **without any code changes**. Just set environment variables!
 
-### **Method 1: Environment Variable**
+### **Python Agents (CrewAI, LangGraph, AG2, etc.)**
+
 ```bash
+# Set proxy environment variables
 export HTTP_PROXY=http://localhost:8090
-# Your agent will now route through Polis automatically
+export HTTPS_PROXY=http://localhost:8090
+
+# Run your agent as usual - all LLM calls go through Polis
+python your_agent.py
 ```
 
-### **Method 2: Agent Configuration**
-Configure your agent to use `http://localhost:8090` as an HTTP proxy.
+### **Node.js / TypeScript Agents**
 
-### **Method 3: Kubernetes Sidecar**
-Deploy Polis as a sidecar container and use iptables rules for transparent proxying.
+```bash
+export HTTP_PROXY=http://localhost:8090
+export HTTPS_PROXY=http://localhost:8090
 
-**Examples:**
-- **OpenAI Python SDK**: Set `HTTP_PROXY` environment variable
-- **LangChain**: Configure proxy in HTTP client
-- **Custom agents**: Use any HTTP client with proxy support
+node your_agent.js
+```
+
+### **Windows PowerShell**
+
+```powershell
+$env:HTTP_PROXY = "http://localhost:8090"
+$env:HTTPS_PROXY = "http://localhost:8090"
+
+python your_agent.py
+```
+
+### **Docker Compose**
+
+Add proxy environment variables to your agent container:
+
+```yaml
+services:
+  my-agent:
+    build: ./my-agent
+    environment:
+      - HTTP_PROXY=http://polis:8090
+      - HTTPS_PROXY=http://polis:8090
+      - NO_PROXY=localhost,127.0.0.1,polis
+```
+
+**Supported Frameworks:**
+- CrewAI, LangChain, LangGraph, AG2 (AutoGen)
+- OpenAI SDK, Anthropic SDK, Vercel AI SDK
+- Any framework using standard HTTP libraries
+
+**Full guide:** [agent-integration-guide.md](agent-integration-guide.md)
 
 ---
 
