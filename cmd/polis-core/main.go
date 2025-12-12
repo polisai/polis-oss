@@ -126,7 +126,7 @@ func startServer(addr string, registry *pipelinepkg.PipelineRegistry, logger *sl
 
 	// Use a manual handler to avoid ServeMux's automatic redirects (301) for CONNECT requests
 	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
+		if r.URL.Path == "/healthz" || r.URL.Path == "/health" {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok"))
 			return
