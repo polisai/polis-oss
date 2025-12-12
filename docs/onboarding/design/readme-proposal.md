@@ -11,7 +11,7 @@
 ### **A. Docker Compose** ← Start here (2 min)
 ```bash
 git clone https://github.com/polisai/polis-oss.git && cd polis-oss
-docker compose -f quickstart/compose.http-proxy.yaml up
+docker compose -f quickstart/compose.polis.yaml up
 # Open http://localhost:3000
 ```
 

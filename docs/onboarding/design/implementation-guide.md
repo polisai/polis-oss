@@ -59,7 +59,7 @@ polis-oss/
 │   └── production.md
 │
 ├── quickstart/
-│   ├── compose.http-proxy.yaml
+│   ├── compose.polis.yaml
 │   ├── compose.transparent.yaml
 │   ├── config.yaml
 │   ├── pipeline.yaml
@@ -88,7 +88,7 @@ User lands on GitHub
 ├─ Sees 3 options (A/B/C)
 ├─ Clicks "Docker Compose"
 ├─ Copies command and runs:
-│  docker compose -f quickstart/compose.http-proxy.yaml up
+│  docker compose -f quickstart/compose.polis.yaml up
 │
 ├─ Terminal output:
 │  polis-core_1   | listening on :8090

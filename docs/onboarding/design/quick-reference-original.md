@@ -19,7 +19,7 @@
 
 | Setup | Best Path | Command |
 |-------|-----------|---------|
-| **Have Docker?** | Path A | `docker compose -f quickstart/compose.http-proxy.yaml up` |
+| **Have Docker?** | Path A | `docker compose -f quickstart/compose.polis.yaml up` |
 | **Have Go 1.25+?** | Path B | `make quickstart-local` |
 | **Have K8s cluster?** | Path C | `kubectl apply -f quickstart/k8s/sidecar-demo.yaml` |
 
@@ -61,10 +61,10 @@
 ```bash
 # Clone & Run (one command)
 git clone https://github.com/polisai/polis-oss.git && cd polis-oss && \
-	docker compose -f quickstart/compose.http-proxy.yaml up
+	docker compose -f quickstart/compose.polis.yaml up
 
 # Stop
-docker compose -f quickstart/compose.http-proxy.yaml down
+docker compose -f quickstart/compose.polis.yaml down
 ```
 
 ### Path B: Local Binary

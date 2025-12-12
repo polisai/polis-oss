@@ -21,7 +21,7 @@ help:
 
 quickstart-docker:
 	@echo "🚀 Starting Polis with Docker Compose..."
-	docker compose -f quickstart/compose.http-proxy.yaml up
+	docker compose -f quickstart/compose.polis.yaml up
 
 quickstart-local:
 	@echo "This target depends on sample agent + UI assets (not included in OSS core)."
@@ -30,10 +30,10 @@ quickstart-k8s:
 	@echo "This target depends on external images and K8s manifests (archived)."
 
 logs:
-	docker compose -f quickstart/compose.http-proxy.yaml logs -f
+	docker compose -f quickstart/compose.polis.yaml logs -f
 
 clean:
-	docker compose -f quickstart/compose.http-proxy.yaml down -v
+	docker compose -f quickstart/compose.polis.yaml down -v
 
 .DEFAULT_GOAL := help
 

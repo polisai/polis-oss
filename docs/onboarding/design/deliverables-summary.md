@@ -13,7 +13,7 @@ A **complete, multi-path onboarding strategy** designed to get users from "landi
 ### **Path A: Docker Compose (Recommended)**
 - **Setup time**: 2 minutes
 - **Best for**: First-time users, fastest path
-- **Command**: `docker compose -f quickstart/compose.http-proxy.yaml up`
+- **Command**: `docker compose -f quickstart/compose.polis.yaml up`
 - **How it works**: Uses `HTTP_PROXY` env var to route all agent traffic through Polis
 - **Success rate target**: 95%
 
@@ -48,7 +48,7 @@ A **complete, multi-path onboarding strategy** designed to get users from "landi
 
 | File | Purpose |
 |------|---------|
-| **compose.http-proxy.yaml** | Docker Compose for Option A (HTTP_PROXY method) |
+| **compose.polis.yaml** | Docker Compose for Option A (HTTP_PROXY method) |
 | **compose.transparent.yaml** | Docker Compose for Option A' (iptables transparent) |
 | **sidecar-demo.yaml** | Kubernetes manifest for Option C (sidecar pattern) |
 | **demo-policy.yaml** | Example Polis policies showing WAF, DLP, cost tracking |

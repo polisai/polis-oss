@@ -3,9 +3,9 @@ logging:
   pretty: true
 
 pipelines:
-  - id: quickstart-waf-egress
+  - id: quickstart-waf-egress-local
     version: 1
-    description: "Quickstart pipeline: blocks prompt-injection phrase, otherwise proxies to mock upstream"
+    description: "Local quickstart pipeline: blocks prompt-injection phrase, otherwise proxies to local mock upstream"
     agentId: "*"
     protocol: http
     nodes:
@@ -26,7 +26,7 @@ pipelines:
       - id: egress
         type: egress.http
         config:
-          upstream_url: http://mock-upstream:8081
+          upstream_url: http://localhost:8081
         on:
           success: ""
           failure: deny

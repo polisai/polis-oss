@@ -13,7 +13,7 @@
 
 ```bash
 # Clone + Run (one command)
-git clone https://github.com/polisai/polis-oss.git && cd polis-oss && docker compose -f quickstart/compose.http-proxy.yaml up
+git clone https://github.com/polisai/polis-oss.git && cd polis-oss && docker compose -f quickstart/compose.polis.yaml up
 ```
 
 **Then**: Open http://localhost:3000 → Send a prompt → Watch Polis intercept it in real-time
