@@ -21,14 +21,17 @@ type GovernanceSummary struct {
 
 // Snapshot is the immutable representation of the current configuration (DTO).
 type Snapshot struct {
-	Generation       int64                    `json:"generation" yaml:"generation"`
-	ReceivedAt       time.Time                `json:"receivedAt" yaml:"-"`
-	RawPolicies      []PolicySpec             `json:"policies" yaml:"policies"`
-	Pipelines        []PipelineSpec           `json:"pipelines" yaml:"pipelines"`
-	PolicyBundles    []PolicyBundleDescriptor `json:"policyBundles" yaml:"policyBundles"`
-	TrustBundles     map[string]*TrustBundle  `json:"trustBundles" yaml:"trustBundles"`
-	Governance       GovernanceSummary        `json:"governance" yaml:"governance"`
-	GovernanceConfig *domain.GovernanceConfig `json:"governanceConfig" yaml:"governanceConfig"`
+	Generation        int64                    `json:"generation" yaml:"generation"`
+	ReceivedAt        time.Time                `json:"receivedAt" yaml:"-"`
+	RawPolicies       []PolicySpec             `json:"policies" yaml:"policies"`
+	Pipelines         []PipelineSpec           `json:"pipelines" yaml:"pipelines"`
+	PolicyBundles     []PolicyBundleDescriptor `json:"policyBundles" yaml:"policyBundles"`
+	TrustBundles      map[string]*TrustBundle  `json:"trustBundles" yaml:"trustBundles"`
+	Governance        GovernanceSummary        `json:"governance" yaml:"governance"`
+	GovernanceConfig  *domain.GovernanceConfig `json:"governanceConfig" yaml:"governanceConfig"`
+	UpstreamMode      string                   `json:"upstreamMode" yaml:"upstream_mode"`
+	UpstreamURL       string                   `json:"upstreamUrl" yaml:"upstream_url"`
+	UpstreamAllowList []string                 `json:"upstreamAllowList" yaml:"upstream_allowlist"`
 
 	Policies          []PolicySummary                   `json:"-" yaml:"-"`
 	PolicyIndex       map[string]PolicySpec             `json:"-" yaml:"-"`

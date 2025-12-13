@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -183,8 +184,8 @@ func startProxy(t *testing.T, opts proxyOptions) *proxyInstance {
 	}
 	stdoutBuf := &bytes.Buffer{}
 	stderrBuf := &bytes.Buffer{}
-	cmd.Stdout = stdoutBuf
-	cmd.Stderr = stderrBuf
+	cmd.Stdout = io.MultiWriter(stdoutBuf, os.Stdout)
+	cmd.Stderr = io.MultiWriter(stderrBuf, os.Stderr)
 
 	if err := cmd.Start(); err != nil {
 		cancel()
