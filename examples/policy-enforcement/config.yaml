@@ -1,0 +1,47 @@
+server:
+  listenParams:
+    - address: ":8091"
+      protocol: "http"
+
+policyBundles:
+  - id: "local-policy"
+    name: "Local Example Policy"
+    version: 1
+    path: "." # Looks in current directory for artifacts
+    artifacts:
+      - name: "main"
+        type: "rego"
+        path: "policy.rego"
+
+pipelines:
+  - id: policy-example
+    description: "Enforces OPA policy on incoming requests."
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: start
+        type: policy
+        config:
+          bundleRef: "local-policy"
+          bundleVersion: 1
+        on:
+          success: egress
+          # OPA 'block' returns a 'deny' outcome, which we handle via explicit edges below.
+          # We can also map 'failure' here if the policy engine errors out.
+          failure: deny
+
+      - id: egress
+        type: egress
+        config:
+          upstream_url: "https://httpbin.org/anything"
+        on:
+          success: ""
+
+      - id: deny
+        type: terminal.deny
+
+    edges:
+      # Explicitly route 'deny' outcome from the policy node to the terminal deny node
+      - from: start
+        to: deny
+        if: "outcome == 'deny'"

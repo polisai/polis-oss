@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -44,28 +45,6 @@ func (h *DAGHandler) executeEgressHTTP(ctx context.Context, w http.ResponseWrite
 		reqBody = body
 	}
 
-	// Create egress request
-	egressReq, err := http.NewRequestWithContext(ctx, method, targetURL, reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to create egress request: %w", err)
-	}
-
-	// Copy headers
-	egressReq.Header = egressHeaders
-
-	// Ensure Transfer-Encoding is NOT sent in headers (it's a property of the request)
-	egressReq.Header.Del("Transfer-Encoding")
-
-	// Explicitly set ContentLength if present in headers (required for some upstreams like OpenAI)
-	// We remove it from the header map to avoid duplication/conflicts, as http.Client uses the struct field.
-	if cl := egressHeaders.Get("Content-Length"); cl != "" {
-		if size, err := strconv.Atoi(cl); err == nil && size >= 0 {
-			egressReq.ContentLength = int64(size)
-			egressReq.TransferEncoding = nil
-			egressReq.Header.Del("Content-Length")
-		}
-	}
-
 	timeout := DefaultEgressTimeout
 	var timeoutSources []string
 	var timeoutCandidates []string
@@ -101,18 +80,91 @@ func (h *DAGHandler) executeEgressHTTP(ctx context.Context, w http.ResponseWrite
 			if v > 0 {
 				timeout = time.Duration(v) * time.Millisecond
 			}
-		case int64:
-			if v > 0 {
-				timeout = time.Duration(v) * time.Millisecond
-			}
-		case float64:
-			if v > 0 {
-				timeout = time.Duration(int(v)) * time.Millisecond
-			}
-		case float32:
-			if v > 0 {
-				timeout = time.Duration(int(v)) * time.Millisecond
-			}
+		}
+	}
+
+	// Handle HTTPS CONNECT Tunneling
+	if method == http.MethodConnect {
+		h.logger.Info("establishing HTTPS tunnel", "target", targetURL)
+
+		// 1. Hijack the connection
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			return fmt.Errorf("webserver does not support hijacking")
+		}
+		clientConn, _, err := hijacker.Hijack()
+		if err != nil {
+			return fmt.Errorf("failed to hijack connection: %w", err)
+		}
+		// Close client connection when done
+		defer clientConn.Close()
+
+		// 2. Dial Upstream
+		// Extract Host:Port from URL (for CONNECT, path is usually host:port)
+		// If scheme is present in targetURL, strip it, but usually targetURL from egress handler is proper.
+		// However, for CONNECT, we need to ensure we have host:port.
+		// The EgressHTTPHandler populates egress.target_url.
+		// If it has http/https scheme, we strip it for Dial.
+
+		connectTarget := targetURL
+		if strings.HasPrefix(connectTarget, "http://") {
+			connectTarget = strings.TrimPrefix(connectTarget, "http://")
+		} else if strings.HasPrefix(connectTarget, "https://") {
+			connectTarget = strings.TrimPrefix(connectTarget, "https://")
+		}
+		// Ensure port if missing (default to 443 for CONNECT)
+		if !strings.Contains(connectTarget, ":") {
+			connectTarget += ":443"
+		}
+
+		// Use a dialer with timeout
+		dialer := net.Dialer{
+			Timeout: timeout,
+		}
+		destConn, err := dialer.DialContext(ctx, "tcp", connectTarget)
+		if err != nil {
+			h.logger.Error("upstream dial failed", "target", connectTarget, "error", err)
+			// Since we hijacked, we must write raw HTTP response
+			_, _ = clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+			return nil // We handled the error by writing to the connection
+		}
+		defer destConn.Close()
+
+		// 3. Send 200 Connection Established to Client
+		_, err = clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+		if err != nil {
+			h.logger.Error("failed to write 200 OK to client", "error", err)
+			return nil
+		}
+
+		// 4. Bidirectional Copy
+		h.logger.Debug("tunnel established, piping data", "target", connectTarget)
+		go transfer(destConn, clientConn)
+		transfer(clientConn, destConn)
+
+		return nil
+	}
+
+	// Create egress request
+	egressReq, err := http.NewRequestWithContext(ctx, method, targetURL, reqBody)
+
+	if err != nil {
+		return fmt.Errorf("failed to create egress request: %w", err)
+	}
+
+	// Copy headers
+	egressReq.Header = egressHeaders
+
+	// Ensure Transfer-Encoding is NOT sent in headers (it's a property of the request)
+	egressReq.Header.Del("Transfer-Encoding")
+
+	// Explicitly set ContentLength if present in headers (required for some upstreams like OpenAI)
+	// We remove it from the header map to avoid duplication/conflicts, as http.Client uses the struct field.
+	if cl := egressHeaders.Get("Content-Length"); cl != "" {
+		if size, err := strconv.Atoi(cl); err == nil && size >= 0 {
+			egressReq.ContentLength = int64(size)
+			egressReq.TransferEncoding = nil
+			egressReq.Header.Del("Content-Length")
 		}
 	}
 
@@ -506,4 +558,14 @@ func isHopByHopHeader(header string) bool {
 		}
 	}
 	return false
+}
+
+// transfer copies data from src to dst until EOF or error.
+func transfer(dst io.WriteCloser, src io.ReadCloser) {
+	defer dst.Close()
+	defer src.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		// Log error if needed, but usually just connection close
+	}
 }

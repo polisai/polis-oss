@@ -39,7 +39,7 @@ func main() {
 	})
 	slog.SetDefault(logger)
 
-	logger.Info("Starting polis-core", "config", *configPath)
+	logger.Info("Starting polis-core", "config", *configPath, "build", "integration_test_verify")
 
 	// Setup Config Provider
 	cfgProvider, err := config.NewFileConfigProvider(*configPath)
@@ -96,8 +96,25 @@ func watchConfig(provider domain.ConfigService, registry *pipelinepkg.PipelineRe
 				logger.Error("Failed to update pipelines", "error", err)
 			} else {
 				logger.Info("Pipelines updated", "count", len(snapshot.Pipelines))
+				for _, p := range snapshot.Pipelines {
+					var upstream string
+					for _, n := range p.Nodes {
+						if n.Type == "egress" || n.Type == "egress.http" {
+							if u, ok := n.Config["upstream_url"].(string); ok {
+								upstream = u
+								break
+							}
+						}
+					}
+					if upstream != "" {
+						logger.Info("Pipeline active", "id", p.ID, "upstream", upstream)
+					} else {
+						logger.Info("Pipeline active", "id", p.ID)
+					}
+				}
 			}
 		}
+
 	}
 }
 
@@ -107,15 +124,26 @@ func startServer(addr string, registry *pipelinepkg.PipelineRegistry, logger *sl
 		Logger:   logger,
 	})
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+	// Use a manual handler to avoid ServeMux's automatic redirects (301) for CONNECT requests
+	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" || r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		// For CONNECT requests, we must bypass opentelemetry middleware because it wraps
+		// the ResponseWriter and hides the Hijack interface needed for HTTPS tunneling.
+		if r.Method == http.MethodConnect {
+			dagHandler.ServeHTTP(w, r)
+			return
+		}
+
+		// Forward everything else to the DAG handler (wrapped in OpenTelemetry)
+		otelhttp.NewHandler(dagHandler, "polis.core").ServeHTTP(w, r)
 	})
-	mux.Handle("/", otelhttp.NewHandler(dagHandler, "polis.core"))
 
 	server := &http.Server{
-		Handler:      mux,
+		Handler:      rootHandler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,

@@ -73,6 +73,36 @@ func (s Snapshot) ToDomain() (domain.Snapshot, error) {
 		domainSnapshot.Pipelines = append(domainSnapshot.Pipelines, pipeSpec.ToDomain())
 	}
 
+	// Synthesize default pipeline if UpstreamMode is set and no pipelines defined
+	if len(domainSnapshot.Pipelines) == 0 && s.UpstreamMode != "" {
+		allowList := make([]interface{}, len(s.UpstreamAllowList))
+		for i, v := range s.UpstreamAllowList {
+			allowList[i] = v
+		}
+
+		defaultPipeline := domain.Pipeline{
+			ID:       "default",
+			Version:  1,
+			AgentID:  "*",
+			Protocol: "http",
+			Nodes: []domain.PipelineNode{
+				{
+					ID:   "egress",
+					Type: "egress.http",
+					Config: map[string]interface{}{
+						"upstream_mode":      s.UpstreamMode,
+						"upstream_url":       s.UpstreamURL,
+						"upstream_allowlist": allowList,
+					},
+					On: domain.NodeHandlers{
+						Success: "", // Terminal node
+					},
+				},
+			},
+		}
+		domainSnapshot.Pipelines = append(domainSnapshot.Pipelines, defaultPipeline)
+	}
+
 	return domainSnapshot, nil
 }
 
@@ -198,33 +228,32 @@ func (s NodeHandlersSpec) ToDomain() domain.NodeHandlers {
 
 // ToDomain converts PolicyBundleDescriptor to domain.PolicyBundleDescriptor
 func (d PolicyBundleDescriptor) ToDomain() domain.PolicyBundleDescriptor {
-artifacts := make([]domain.BundleArtifactDescriptor, len(d.Artifacts))
-for i, a := range d.Artifacts {
-artifacts[i] = a.ToDomain()
-}
-return domain.PolicyBundleDescriptor{
-ID:        d.ID,
-Name:      d.Name,
-Version:   d.Version,
-Revision:  d.Revision,
-Path:      d.Path,
-SizeLimit: d.SizeLimit,
-Labels:    d.Labels,
-Artifacts: artifacts,
-}
+	artifacts := make([]domain.BundleArtifactDescriptor, len(d.Artifacts))
+	for i, a := range d.Artifacts {
+		artifacts[i] = a.ToDomain()
+	}
+	return domain.PolicyBundleDescriptor{
+		ID:        d.ID,
+		Name:      d.Name,
+		Version:   d.Version,
+		Revision:  d.Revision,
+		Path:      d.Path,
+		SizeLimit: d.SizeLimit,
+		Labels:    d.Labels,
+		Artifacts: artifacts,
+	}
 }
 
 // ToDomain converts BundleArtifactDescriptor to domain.BundleArtifactDescriptor
 func (a BundleArtifactDescriptor) ToDomain() domain.BundleArtifactDescriptor {
-return domain.BundleArtifactDescriptor{
-Name:        a.Name,
-Path:        a.Path,
-Type:        a.Type,
-MediaType:   a.MediaType,
-Encoding:    a.Encoding,
-Compression: a.Compression,
-SHA256:      a.SHA256,
-Metadata:    a.Metadata,
+	return domain.BundleArtifactDescriptor{
+		Name:        a.Name,
+		Path:        a.Path,
+		Type:        a.Type,
+		MediaType:   a.MediaType,
+		Encoding:    a.Encoding,
+		Compression: a.Compression,
+		SHA256:      a.SHA256,
+		Metadata:    a.Metadata,
+	}
 }
-}
-

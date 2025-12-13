@@ -1,11 +1,14 @@
 package engine
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -125,15 +128,19 @@ func (h *DAGHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Store request body in context for egress handler
 	if r.Body != nil {
+		h.logger.Info("reading request body")
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
 			h.logger.Error("failed to read request body", "error", err)
 		} else {
+			h.logger.Info("request body read", "bytes", len(bodyBytes), "content", string(bodyBytes))
 			// Restore body for future reads
 			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			pipelineCtx.Variables["request.body"] = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			pipelineCtx.Variables["request.body_text"] = string(bodyBytes) // Explicit string availability for nodes
 		}
+	} else {
+		h.logger.Info("request body is nil")
 	}
 	pipelineCtx.Variables["request.query"] = r.URL.RawQuery
 
@@ -534,4 +541,13 @@ func (r *statusRecorder) Flush() {
 	if f, ok := r.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack implements http.Hijacker to allow connection takeover for HTTPS tunneling.
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
+	}
+	return hijacker.Hijack()
 }

@@ -584,7 +584,12 @@ func toInt(value interface{}) (int, bool) {
 func getHeader(headers map[string][]string, name string) string {
 	values, ok := headers[name]
 	if !ok || len(values) == 0 {
-		return ""
+		// Try canonical form
+		canonical := http.CanonicalHeaderKey(name)
+		values, ok = headers[canonical]
+		if !ok || len(values) == 0 {
+			return ""
+		}
 	}
 	return values[0]
 }
@@ -622,6 +627,7 @@ func (h *EgressHTTPHandler) extractProxyTarget(pipelineCtx *domain.PipelineConte
 
 	// Extract Host header for relative URIs
 	hostHeader := getHeader(req.Headers, "Host")
+
 	// Fallback to Request.Host if header wasn't provided by the CLI or caller
 	if hostHeader == "" {
 		hostHeader = req.Host
