@@ -1,0 +1,137 @@
+# Complete Quickstart Pipeline
+# This pipeline demonstrates all major Polis features in a single configuration
+# Perfect for the "wow moment" during onboarding
+
+logging:
+  level: info
+  pretty: true
+
+pipelines:
+  - id: quickstart-complete-demo
+    version: 1
+    description: "Complete demo pipeline showcasing WAF, DLP, Policy, and Egress"
+    agentId: "*"
+    protocol: http
+    nodes:
+      # 1. Web Application Firewall - Block malicious patterns
+      - id: waf_protection
+        type: waf.inspect
+        config:
+          action: block
+          severity: high
+          rules:
+            - name: Prompt Injection (Ignore Instructions)
+              pattern: "(?i)ignore\\s+(all\\s+)?previous\\s+instructions"
+              action: block
+              severity: high
+            - name: System Prompt Extraction
+              pattern: "(?i)(reveal|show|tell me).*system\\s+prompt"
+              action: block
+              severity: high
+            - name: Jailbreak Attempt
+              pattern: "(?i)(jailbreak|bypass|circumvent).*safety"
+              action: block
+              severity: medium
+            - name: Password Fishing
+              pattern: "(?i)(password|secret|api[_\\s]?key)"
+              action: block
+              severity: medium
+        on:
+          success: dlp_redaction
+          failure: security_deny
+
+      # 2. Data Loss Prevention - Redact PII
+      - id: dlp_redaction
+        type: dlp.redact
+        config:
+          scope: both  # request and response
+          action: redact
+          rules:
+            - name: Email Addresses
+              pattern: "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"
+              replacement: "[EMAIL_REDACTED]"
+            - name: Phone Numbers
+              pattern: "\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b"
+              replacement: "[PHONE_REDACTED]"
+            - name: Credit Card Numbers
+              pattern: "\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b"
+              replacement: "[CARD_REDACTED]"
+            - name: SSN
+              pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+              replacement: "[SSN_REDACTED]"
+        on:
+          success: policy_check
+          failure: policy_check  # Continue even if DLP fails
+
+      # 3. Policy Enforcement - Custom business rules
+      - id: policy_check
+        type: policy.opa
+        config:
+          bundleRef: "quickstart_policy"
+          policy: |
+            package quickstart
+
+            # Allow requests during business hours (9 AM - 5 PM UTC)
+            default allow = false
+
+            allow {
+                input.method == "POST"
+                business_hours
+                not rate_limited
+            }
+
+            business_hours {
+                hour := time.clock(time.now_ns())[0]
+                hour >= 9
+                hour <= 17
+            }
+
+            rate_limited {
+                # Simple rate limiting logic (would be more sophisticated in production)
+                false  # Disabled for demo
+            }
+        on:
+          success: upstream_egress
+          failure: policy_deny
+
+      # 4. Egress - Forward to upstream service
+      - id: upstream_egress
+        type: egress.http
+        config:
+          upstream_url: http://mock-upstream:8081
+          timeout: 30s
+          retry_attempts: 2
+          headers:
+            X-Polis-Pipeline: "quickstart-complete-demo"
+            X-Polis-Version: "1.0"
+        on:
+          success: ""  # End of pipeline
+          failure: egress_failure
+
+      # Terminal nodes for different failure scenarios
+      - id: security_deny
+        type: terminal.deny
+        config:
+          status: 403
+          code: SECURITY_VIOLATION
+          message: "Request blocked by Polis security policies"
+          headers:
+            X-Block-Reason: "WAF"
+
+      - id: policy_deny
+        type: terminal.deny
+        config:
+          status: 403
+          code: POLICY_VIOLATION
+          message: "Request denied by business policy"
+          headers:
+            X-Block-Reason: "Policy"
+
+      - id: egress_failure
+        type: terminal.deny
+        config:
+          status: 502
+          code: UPSTREAM_ERROR
+          message: "Upstream service unavailable"
+          headers:
+            X-Block-Reason: "Egress"

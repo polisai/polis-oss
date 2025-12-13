@@ -1,0 +1,166 @@
+# ===========================
+# Polis Demo Policy
+# ===========================
+#
+# This policy demonstrates:
+# 1. Prompt injection detection
+# 2. PII redaction
+# 3. Cost tracking
+# 4. Audit logging
+#
+# Edit this file and save; Polis will reload automatically in dev mode.
+
+pipelines:
+	# Main agent pipeline
+	- id: agent-governance
+		agentId: "*"  # Apply to all agents
+		protocol: "http"
+
+		nodes:
+			# Step 1: Log incoming request
+			- id: log_request
+				type: log
+				config:
+					level: info
+					include_headers: true
+					include_body: true
+				on:
+					success: check_prompt_injection
+					failure: log_request
+
+			# Step 2: Detect and block prompt injections
+			- id: check_prompt_injection
+				type: waf
+				config:
+					action: block  # Options: block, warn, allow
+					fail_open: false  # If detection fails, deny the request
+					rules:
+						- name: "Ignore Previous Instructions"
+							pattern: "(?i)(ignore\\s+(all\\s+)?previous|disregard\\s+your|override\\s+instructions)"
+							severity: high
+							action: block
+
+						- name: "System Prompt Reveal"
+							pattern: "(?i)(system\\s+prompt|developer\\s+mode|reveal.*instructions|what\\s+are\\s+you|you\\s+are)"
+							severity: high
+							action: block
+
+						- name: "Role Play Bypass"
+							pattern: "(?i)(role\\s+play|you\\s+are\\s+now|pretend\\s+you|act\\s+like)"
+							severity: medium
+							action: warn
+
+				on:
+					success: check_dlp
+					failure: block_injection
+
+			# Step 3: DLP - Redact sensitive data
+			- id: check_dlp
+				type: dlp
+				config:
+					action: redact
+					scope: both  # both = request + response
+					patterns:
+						- name: "Email Address"
+							pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}'
+							replace_with: "[EMAIL_REDACTED]"
+							severity: medium
+
+						- name: "Social Security Number"
+							pattern: '\\b\\d{3}-\\d{2}-\\d{4}\\b'
+							replace_with: "[SSN_REDACTED]"
+							severity: high
+
+						- name: "Phone Number"
+							pattern: '\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b'
+							replace_with: "[PHONE_REDACTED]"
+							severity: medium
+
+						- name: "Credit Card"
+							pattern: '\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b'
+							replace_with: "[CARD_REDACTED]"
+							severity: high
+
+						- name: "API Key (Generic)"
+							pattern: 'api[_-]?key["\\']?\\s*[=:]\\s*["\\']?[\\w-]{20,}["\\']?'
+							replace_with: "[API_KEY_REDACTED]"
+							severity: high
+
+				on:
+					success: forward_to_llm
+					failure: forward_to_llm
+
+			# Step 4: Forward to LLM
+			- id: forward_to_llm
+				type: egress
+				config:
+					upstream_url: "https://api.openai.com/v1"
+					timeout: 30s
+					retry:
+						max_attempts: 3
+						backoff_ms: 100
+				on:
+					success: track_response
+					failure: error_response
+
+			# Step 5: Track response metrics
+			- id: track_response
+				type: metrics
+				config:
+					track:
+						- latency
+						- tokens
+						- cost
+					log_level: info
+				on:
+					success: log_response
+					failure: log_response
+
+			# Step 6: Log response for audit trail
+			- id: log_response
+				type: log
+				config:
+					level: info
+					include_body: true
+				on:
+					success: ""
+					failure: ""
+
+			# Terminal: Block injection attempt
+			- id: block_injection
+				type: terminal.deny
+				config:
+					code: 403
+					message: "Request blocked: Prompt injection detected. This request violates AI governance policies."
+					log_level: warn
+
+			# Terminal: Error response
+			- id: error_response
+				type: terminal.deny
+				config:
+					code: 500
+					message: "Internal error processing your request."
+					log_level: error
+
+---
+
+# Observability configuration
+observability:
+	# Enable detailed tracing
+	tracing:
+		enabled: true
+		sample_rate: 1.0  # 100% sampling in dev; reduce in production
+		otlp_endpoint: "localhost:4317"
+
+	# Structured logging
+	logging:
+		format: json  # json or text
+		level: info
+		output: stdout
+
+	# Metrics collection
+	metrics:
+		enabled: true
+		export_interval_seconds: 60
+		prometheus_port: 19091
+

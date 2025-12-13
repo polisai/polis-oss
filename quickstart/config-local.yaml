@@ -1,0 +1,39 @@
+logging:
+  level: info
+  pretty: true
+
+pipelines:
+  - id: quickstart-waf-egress-local
+    version: 1
+    description: "Local quickstart pipeline: blocks prompt-injection phrase, otherwise proxies to local mock upstream"
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: waf
+        type: waf.inspect
+        config:
+          action: block
+          severity: high
+          rules:
+            - name: Prompt Injection (Ignore Instructions)
+              pattern: "(?i)ignore\\s+(all\\s+)?previous\\s+instructions"
+              action: block
+              severity: high
+        on:
+          success: egress
+          failure: deny
+
+      - id: egress
+        type: egress.http
+        config:
+          upstream_url: http://localhost:8081
+        on:
+          success: ""
+          failure: deny
+
+      - id: deny
+        type: terminal.deny
+        config:
+          status: 403
+          code: WAF_BLOCKED
+          message: "Request blocked by Polis WAF quickstart rule"

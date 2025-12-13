@@ -1,0 +1,195 @@
+# Progressive Onboarding Pipeline
+# This configuration shows how to gradually introduce Polis features
+# Start simple, then uncomment sections to add more capabilities
+
+logging:
+  level: info
+  pretty: true
+
+pipelines:
+  # STEP 1: Basic HTTP Proxy (uncomment to start here)
+  # - id: step1-basic-proxy
+  #   version: 1
+  #   description: "Step 1: Basic HTTP proxy - just forward requests"
+  #   agentId: "step1"
+  #   protocol: http
+  #   nodes:
+  #     - id: egress
+  #       type: egress.http
+  #       config:
+  #         upstream_url: http://mock-upstream:8081
+  #       on:
+  #         success: ""
+
+  # STEP 2: Add Basic WAF (uncomment to try this)
+  # - id: step2-basic-waf
+  #   version: 1
+  #   description: "Step 2: Add basic WAF protection"
+  #   agentId: "step2"
+  #   protocol: http
+  #   nodes:
+  #     - id: waf
+  #       type: waf.inspect
+  #       config:
+  #         action: block
+  #         rules:
+  #           - name: Simple Prompt Injection
+  #             pattern: "(?i)ignore.*previous.*instructions"
+  #             action: block
+  #       on:
+  #         success: egress
+  #         failure: deny
+  #     - id: egress
+  #       type: egress.http
+  #       config:
+  #         upstream_url: http://mock-upstream:8081
+  #       on:
+  #         success: ""
+  #     - id: deny
+  #       type: terminal.deny
+  #       config:
+  #         status: 403
+  #         message: "Blocked by WAF"
+
+  # STEP 3: Add DLP (uncomment to try this)
+  # - id: step3-waf-plus-dlp
+  #   version: 1
+  #   description: "Step 3: WAF + Data Loss Prevention"
+  #   agentId: "step3"
+  #   protocol: http
+  #   nodes:
+  #     - id: waf
+  #       type: waf.inspect
+  #       config:
+  #         action: block
+  #         rules:
+  #           - name: Prompt Injection
+  #             pattern: "(?i)ignore.*previous.*instructions"
+  #             action: block
+  #       on:
+  #         success: dlp
+  #         failure: deny
+  #     - id: dlp
+  #       type: dlp.redact
+  #       config:
+  #         scope: both
+  #         action: redact
+  #         rules:
+  #           - name: Email
+  #             pattern: "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"
+  #             replacement: "[EMAIL]"
+  #       on:
+  #         success: egress
+  #         failure: egress
+  #     - id: egress
+  #       type: egress.http
+  #       config:
+  #         upstream_url: http://mock-upstream:8081
+  #       on:
+  #         success: ""
+  #     - id: deny
+  #       type: terminal.deny
+  #       config:
+  #         status: 403
+  #         message: "Blocked by security policy"
+
+  # STEP 4: Full Pipeline (this is active by default)
+  - id: step4-complete-pipeline
+    version: 1
+    description: "Step 4: Complete pipeline with all features"
+    agentId: "*"  # Matches all agents
+    protocol: http
+    nodes:
+      # Authentication (optional - can be enabled later)
+      # - id: auth
+      #   type: auth.bearer
+      #   config:
+      #     required: false
+      #   on:
+      #     success: waf
+      #     failure: waf  # Continue even without auth for demo
+
+      # Web Application Firewall
+      - id: waf
+        type: waf.inspect
+        config:
+          action: block
+          severity: high
+          rules:
+            - name: Prompt Injection
+              pattern: "(?i)ignore\\s+(all\\s+)?previous\\s+instructions"
+              action: block
+              severity: high
+            - name: System Prompt Extraction
+              pattern: "(?i)(reveal|show).*system\\s+prompt"
+              action: block
+              severity: medium
+        on:
+          success: dlp
+          failure: deny
+
+      # Data Loss Prevention
+      - id: dlp
+        type: dlp.redact
+        config:
+          scope: both  # request and response
+          action: redact
+          rules:
+            - name: Email Addresses
+              pattern: "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"
+              replacement: "[EMAIL_REDACTED]"
+            - name: Phone Numbers
+              pattern: "\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b"
+              replacement: "[PHONE_REDACTED]"
+        on:
+          success: policy
+          failure: policy
+
+      # Policy Enforcement (optional - uncomment to enable)
+      # - id: policy
+      #   type: policy.opa
+      #   config:
+      #     policy: |
+      #       package demo
+      #       default allow = true
+      #       # Add custom policies here
+      #   on:
+      #     success: egress
+      #     failure: deny
+
+      # For now, skip policy and go straight to egress
+      - id: policy
+        type: egress.http
+        config:
+          upstream_url: http://mock-upstream:8081
+          headers:
+            X-Polis-Pipeline: "step4-complete"
+        on:
+          success: ""
+          failure: deny
+
+      # Terminal deny node
+      - id: deny
+        type: terminal.deny
+        config:
+          status: 403
+          code: POLICY_VIOLATION
+          message: "Request blocked by Polis governance policies"
+
+# Instructions for progressive onboarding:
+#
+# 1. Start with step1-basic-proxy (uncomment it, comment out step4)
+#    Test: curl -x http://localhost:8090 http://example.com/test
+#    Result: Simple proxy, no governance
+#
+# 2. Move to step2-basic-waf (uncomment it, comment out step1 and step4)
+#    Test: curl -x http://localhost:8090 -d '{"msg":"ignore previous instructions"}' http://example.com/test
+#    Result: Request blocked by WAF
+#
+# 3. Try step3-waf-plus-dlp (uncomment it, comment out others)
+#    Test: curl -x http://localhost:8090 -d '{"msg":"Contact me at john@example.com"}' http://example.com/test
+#    Result: Email redacted in response
+#
+# 4. Use step4-complete-pipeline (default)
+#    Test: All features working together
+#    Result: Full governance pipeline

@@ -1,0 +1,41 @@
+logging:
+  level: info
+  pretty: true
+
+pipelines:
+  # Pipeline for Google Gemini API
+  - id: gemini-api-pipeline
+    version: 1
+    description: "Pipeline for Google Gemini API with WAF protection"
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: waf
+        type: waf.inspect
+        config:
+          action: block
+          severity: high
+          rules:
+            - name: Prompt Injection (Ignore Instructions)
+              pattern: "(?i)ignore\\s+(all\\s+)?previous\\s+instructions"
+              action: block
+              severity: high
+        on:
+          success: egress
+          failure: deny
+
+      - id: egress
+        type: egress.http
+        config:
+          # Forward to Google Gemini API
+          upstream_url: https://generativelanguage.googleapis.com
+        on:
+          success: ""
+          failure: deny
+
+      - id: deny
+        type: terminal.deny
+        config:
+          status: 403
+          code: WAF_BLOCKED
+          message: "Request blocked by Polis WAF"

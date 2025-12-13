@@ -1,0 +1,44 @@
+logging:
+  level: info
+  pretty: true
+
+pipelines:
+  - id: real-api-waf-egress
+    version: 1
+    description: "Pipeline for real LLM APIs: blocks prompt-injection, forwards to actual API endpoints"
+    agentId: "*"
+    protocol: http
+    nodes:
+      - id: waf
+        type: waf.inspect
+        config:
+          action: block
+          severity: high
+          rules:
+            - name: Prompt Injection (Ignore Instructions)
+              pattern: "(?i)ignore\\s+(all\\s+)?previous\\s+instructions"
+              action: block
+              severity: high
+            - name: System Prompt Extraction
+              pattern: "(?i)(reveal|show|tell me).*system\\s+prompt"
+              action: block
+              severity: high
+        on:
+          success: egress
+          failure: deny
+
+      - id: egress
+        type: egress.http
+        config:
+          # Use proxy mode: forward to the original destination from Host header
+          upstream_mode: proxy
+        on:
+          success: ""
+          failure: deny
+
+      - id: deny
+        type: terminal.deny
+        config:
+          status: 403
+          code: WAF_BLOCKED
+          message: "Request blocked by Polis WAF"
