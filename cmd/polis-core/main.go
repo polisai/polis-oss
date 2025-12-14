@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/polisai/polis-oss/internal/tls"
 	"github.com/polisai/polis-oss/pkg/config"
 	"github.com/polisai/polis-oss/pkg/domain"
 	pipelinepkg "github.com/polisai/polis-oss/pkg/engine"
@@ -62,11 +63,11 @@ func main() {
 	// Start Config Watcher
 	go watchConfig(cfgProvider, pipelineRegistry, policyStore, logger)
 
-	// Start Server
-	server := startServer(*listenAddr, pipelineRegistry, logger)
+	// Start Servers (HTTP and TLS)
+	servers := startServers(*listenAddr, pipelineRegistry, cfgProvider, logger)
 
 	// Wait for shutdown
-	waitForShutdown(server, logger)
+	waitForShutdown(servers, logger)
 }
 
 func watchConfig(provider domain.ConfigService, registry *pipelinepkg.PipelineRegistry, policyStore storage.PolicyStore, logger *slog.Logger) {
@@ -118,7 +119,13 @@ func watchConfig(provider domain.ConfigService, registry *pipelinepkg.PipelineRe
 	}
 }
 
-func startServer(addr string, registry *pipelinepkg.PipelineRegistry, logger *slog.Logger) *http.Server {
+// ServerGroup holds multiple HTTP servers and TLS servers
+type ServerGroup struct {
+	httpServers []*http.Server
+	tlsServer   *tls.TLSServer
+}
+
+func startServers(addr string, registry *pipelinepkg.PipelineRegistry, cfgProvider *config.FileConfigProvider, logger *slog.Logger) *ServerGroup {
 	dagHandler := pipelinepkg.NewDAGHandler(pipelinepkg.DAGHandlerConfig{
 		Registry: registry,
 		Logger:   logger,
@@ -142,33 +149,132 @@ func startServer(addr string, registry *pipelinepkg.PipelineRegistry, logger *sl
 		otelhttp.NewHandler(dagHandler, "polis.core").ServeHTTP(w, r)
 	})
 
-	server := &http.Server{
-		Handler:      rootHandler,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
-
-	listener, err := net.Listen("tcp", addr)
+	// Get configuration
+	cfg, err := cfgProvider.GetConfig()
 	if err != nil {
-		logger.Error("Failed to bind listener", "addr", addr, "error", err)
+		logger.Error("Failed to get configuration for server setup", "error", err)
 		os.Exit(1)
 	}
 
-	// Log the actual resolved address (useful when addr is :0)
-	logger.Info("Server listening", "addr", listener.Addr().String())
+	var httpServers []*http.Server
+	var tlsServer *tls.TLSServer
 
-	go func() {
-		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			logger.Error("Server failed", "error", err)
+	// Determine listeners to start
+	httpAddresses, httpsAddresses := determineListenerAddresses(cfg.Server, addr, logger)
+
+	// Start HTTP servers
+	for _, httpAddr := range httpAddresses {
+		httpServer := &http.Server{
+			Handler:      rootHandler,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+			IdleTimeout:  120 * time.Second,
+		}
+
+		listener, err := net.Listen("tcp", httpAddr)
+		if err != nil {
+			logger.Error("Failed to bind HTTP listener", "addr", httpAddr, "error", err)
+			// Clean up any servers we've already started
+			shutdownHTTPServers(httpServers, logger)
 			os.Exit(1)
 		}
-	}()
 
-	return server
+		// Log the actual resolved address (useful when addr is :0)
+		logger.Info("HTTP server listening", "addr", listener.Addr().String())
+
+		httpServers = append(httpServers, httpServer)
+
+		go func(server *http.Server, listener net.Listener, address string) {
+			if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+				logger.Error("HTTP server failed", "error", err, "address", address)
+				os.Exit(1)
+			}
+		}(httpServer, listener, httpAddr)
+	}
+
+	// Start TLS server if there are HTTPS addresses or legacy TLS is enabled
+	if len(httpsAddresses) > 0 || (cfg.Server.TLS != nil && cfg.Server.TLS.Enabled) {
+		// Determine which TLS configuration to use
+		tlsConfig := cfg.Server.TLS
+		if len(httpsAddresses) > 0 {
+			// Use the first HTTPS listener's TLS config if available, otherwise use server-level TLS config
+			for _, param := range cfg.Server.ListenParams {
+				if param.Protocol == "https" && param.TLS != nil {
+					tlsConfig = param.TLS
+					break
+				}
+			}
+		}
+
+		if tlsConfig != nil && tlsConfig.Enabled {
+			logger.Info("TLS is enabled, starting TLS server")
+
+			tlsServer, err = tls.NewTLSServer(tlsConfig, dagHandler, logger)
+			if err != nil {
+				logger.Error("Failed to create TLS server", "error", err)
+			} else {
+				// Use configured HTTPS addresses or default
+				addresses := httpsAddresses
+				if len(addresses) == 0 {
+					addresses = []string{":8443"} // Default HTTPS port
+				}
+
+				ctx := context.Background()
+				if err := tlsServer.Start(ctx, addresses); err != nil {
+					logger.Error("Failed to start TLS server", "error", err)
+					tlsServer = nil
+				} else {
+					logger.Info("TLS server started successfully", "addresses", addresses)
+				}
+			}
+		}
+	} else {
+		logger.Info("TLS is not enabled")
+	}
+
+	return &ServerGroup{
+		httpServers: httpServers,
+		tlsServer:   tlsServer,
+	}
 }
 
-func waitForShutdown(server *http.Server, logger *slog.Logger) {
+// determineListenerAddresses determines which HTTP and HTTPS addresses to listen on
+func determineListenerAddresses(serverConfig config.ServerConfig, legacyAddr string, logger *slog.Logger) (httpAddresses, httpsAddresses []string) {
+	// If ListenParams are configured, use them
+	if len(serverConfig.ListenParams) > 0 {
+		for _, param := range serverConfig.ListenParams {
+			switch param.Protocol {
+			case "http":
+				httpAddresses = append(httpAddresses, param.Address)
+			case "https":
+				httpsAddresses = append(httpsAddresses, param.Address)
+			default:
+				logger.Warn("Unknown protocol in listen parameters", "protocol", param.Protocol, "address", param.Address)
+			}
+		}
+		logger.Info("Using configured listen parameters", "http_addresses", httpAddresses, "https_addresses", httpsAddresses)
+	} else {
+		// Backward compatibility: use legacy DataAddress for HTTP
+		httpAddresses = []string{legacyAddr}
+		logger.Info("Using legacy data address for HTTP", "address", legacyAddr)
+	}
+
+	return httpAddresses, httpsAddresses
+}
+
+// shutdownHTTPServers gracefully shuts down a list of HTTP servers
+func shutdownHTTPServers(servers []*http.Server, logger *slog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for i, server := range servers {
+		if err := server.Shutdown(ctx); err != nil {
+			logger.Error("Failed to shutdown HTTP server", "index", i, "error", err)
+		}
+	}
+}
+
+func waitForShutdown(servers *ServerGroup, logger *slog.Logger) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	sig := <-sigCh
@@ -178,7 +284,17 @@ func waitForShutdown(server *http.Server, logger *slog.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := server.Shutdown(ctx); err != nil {
-		logger.Error("Shutdown error", "error", err)
+	// Shutdown all HTTP servers
+	for i, httpServer := range servers.httpServers {
+		if err := httpServer.Shutdown(ctx); err != nil {
+			logger.Error("HTTP server shutdown error", "index", i, "error", err)
+		}
+	}
+
+	// Shutdown TLS server if running
+	if servers.tlsServer != nil {
+		if err := servers.tlsServer.Shutdown(ctx); err != nil {
+			logger.Error("TLS server shutdown error", "error", err)
+		}
 	}
 }

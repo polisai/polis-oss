@@ -767,6 +767,30 @@ func (e *DAGExecutor) conditionLookup(pipelineCtx *domain.PipelineContext) expr.
 			if pipelineCtx.Pipeline != nil {
 				return pipelineCtx.Pipeline.Version, true
 			}
+		case "tls.version":
+			if pipelineCtx.Request.TLS != nil {
+				return pipelineCtx.Request.TLS.Version, true
+			}
+		case "tls.cipher_suite":
+			if pipelineCtx.Request.TLS != nil {
+				return pipelineCtx.Request.TLS.CipherSuite, true
+			}
+		case "tls.server_name":
+			if pipelineCtx.Request.TLS != nil {
+				return pipelineCtx.Request.TLS.ServerName, true
+			}
+		case "tls.client_auth":
+			if pipelineCtx.Request.TLS != nil {
+				return pipelineCtx.Request.TLS.ClientAuth, true
+			}
+		case "tls.negotiated_protocol":
+			if pipelineCtx.Request.TLS != nil {
+				return pipelineCtx.Request.TLS.NegotiatedProtocol, true
+			}
+		case "tls.handshake_duration_ms":
+			if pipelineCtx.Request.TLS != nil {
+				return int64(pipelineCtx.Request.TLS.HandshakeDuration.Milliseconds()), true
+			}
 		}
 
 		return nil, false

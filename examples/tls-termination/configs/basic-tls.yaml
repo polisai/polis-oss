@@ -1,0 +1,36 @@
+# Basic TLS Termination Configuration
+# This example shows the simplest TLS termination setup
+
+server:
+  admin_address: ":19090"
+  data_address: ":8443"  # HTTPS port
+
+  tls:
+    enabled: true
+    cert_file: "./certs/server.crt"
+    key_file: "./certs/server.key"
+    min_version: "1.2"
+
+telemetry:
+  otlp_endpoint: "http://localhost:4317"
+  insecure: true
+
+control_plane:
+  address: "localhost:9090"
+  mtls_enabled: false
+
+# Simple pipeline that forwards HTTPS traffic to HTTP backend
+pipelines:
+  - id: "basic-tls-pipeline"
+    version: 1
+    description: "Basic TLS termination with HTTP backend"
+    agentId: "*"
+    protocol: "http"  # Processes decrypted HTTP after TLS termination
+    nodes:
+      - id: "egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://backend.internal:8080"
+
+logging:
+  level: "info"

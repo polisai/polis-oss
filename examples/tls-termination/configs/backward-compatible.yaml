@@ -1,0 +1,38 @@
+# Backward Compatible TLS Configuration Example
+# This configuration demonstrates backward compatibility with existing
+# single-listener configurations using the legacy data_address field
+
+server:
+  admin_address: ":19090"
+  data_address: ":8090"  # Legacy HTTP listener address
+
+  # Server-level TLS configuration (will use default HTTPS port :8443)
+  tls:
+    enabled: true
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+    min_version: "1.2"
+    cipher_suites:
+      - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+      - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+    client_auth:
+      required: false
+      ca_file: "certs/client-ca.crt"
+    sni:
+      "api.example.com":
+        cert_file: "certs/api-cert.pem"
+        key_file: "certs/api-key.pem"
+
+telemetry:
+  otlp_endpoint: "http://localhost:4317"
+  insecure: true
+
+control_plane:
+  address: "localhost:9090"
+  mtls_enabled: false
+
+pipeline:
+  file: "pipeline.yaml"
+
+logging:
+  level: "info"

@@ -190,8 +190,18 @@ func (h *DAGHandler) executeEgressHTTP(ctx context.Context, w http.ResponseWrite
 	}
 	h.logger.Debug("executing egress HTTP request", logArgs...)
 
-	// Perform the request using shared client
-	resp, err := h.httpClient.Do(egressReq)
+	// Use custom TLS transport if configured
+	client := h.httpClient
+	if customTransport, ok := pipelineCtx.Variables["egress.tls_transport"].(*http.Transport); ok {
+		client = &http.Client{
+			Transport: customTransport,
+			Timeout:   timeout,
+		}
+		h.logger.Debug("using custom TLS transport for upstream connection", "target_url", targetURL)
+	}
+
+	// Perform the request using appropriate client
+	resp, err := client.Do(egressReq)
 	if err != nil {
 		return fmt.Errorf("egress HTTP request failed: %w", err)
 	}

@@ -1,0 +1,117 @@
+# SNI Multi-Domain Configuration
+# This example shows TLS termination with different certificates for different domains
+
+server:
+  admin_address: ":19090"
+  data_address: ":8443"
+
+  tls:
+    enabled: true
+    # Default certificate for unmatched domains
+    cert_file: "./certs/server.crt"
+    key_file: "./certs/server.key"
+    min_version: "1.2"
+
+    # SNI configuration for specific domains
+    sni:
+      "api.example.com":
+        cert_file: "./certs/api.crt"
+        key_file: "./certs/api.key"
+      "admin.example.com":
+        cert_file: "./certs/admin.crt"
+        key_file: "./certs/admin.key"
+      "*.staging.example.com":
+        cert_file: "./certs/staging-wildcard.crt"
+        key_file: "./certs/staging-wildcard.key"
+
+telemetry:
+  otlp_endpoint: "http://localhost:4317"
+  insecure: true
+
+control_plane:
+  address: "localhost:9090"
+  mtls_enabled: false
+
+# Different pipelines for different domains
+pipelines:
+  # API domain pipeline with strict security
+  - id: "api-pipeline"
+    version: 1
+    description: "API domain with enhanced security"
+    agentId: "*"
+    protocol: "http"
+    match:
+      headers:
+        host: ["api.example.com"]
+    nodes:
+      - id: "rate-limit"
+        type: "governance.ratelimit"
+        config:
+          requests_per_minute: 1000
+
+      - id: "dlp-scan"
+        type: "policy.dlp"
+        config:
+          rules: ["api-keys", "tokens"]
+
+      - id: "api-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://api-backend.internal:8080"
+
+  # Admin domain pipeline with additional authentication
+  - id: "admin-pipeline"
+    version: 1
+    description: "Admin domain with strict controls"
+    agentId: "*"
+    protocol: "http"
+    match:
+      headers:
+        host: ["admin.example.com"]
+    nodes:
+      - id: "admin-policy"
+        type: "policy.opa"
+        config:
+          policy: |
+            package admin_access
+
+            default allow = false
+
+            allow {
+              input.headers["x-admin-token"][_] == "admin-secret-token"
+            }
+
+      - id: "admin-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://admin-backend.internal:8080"
+
+  # Staging wildcard pipeline for development
+  - id: "staging-pipeline"
+    version: 1
+    description: "Staging environment pipeline"
+    agentId: "*"
+    protocol: "http"
+    match:
+      headers:
+        host: ["*.staging.example.com"]
+    nodes:
+      - id: "staging-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://staging-backend.internal:8080"
+
+  # Default pipeline for other domains
+  - id: "default-pipeline"
+    version: 1
+    description: "Default pipeline for unmatched domains"
+    agentId: "*"
+    protocol: "http"
+    nodes:
+      - id: "default-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://default-backend.internal:8080"
+
+logging:
+  level: "info"
