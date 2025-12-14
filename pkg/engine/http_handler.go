@@ -127,7 +127,8 @@ func (h *DAGHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	pipelineCtx := h.buildPipelineContext(r, agentID)
 
 	// Store request body in context for egress handler
-	if r.Body != nil {
+	// Skip body reading for CONNECT requests - the body stream is the TLS tunnel itself
+	if r.Method != http.MethodConnect && r.Body != nil {
 		h.logger.Info("reading request body")
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -139,6 +140,8 @@ func (h *DAGHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			pipelineCtx.Variables["request.body"] = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			pipelineCtx.Variables["request.body_text"] = string(bodyBytes) // Explicit string availability for nodes
 		}
+	} else if r.Method == http.MethodConnect {
+		h.logger.Info("CONNECT request - preserving connection for tunneling")
 	} else {
 		h.logger.Info("request body is nil")
 	}
