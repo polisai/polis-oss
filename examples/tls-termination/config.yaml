@@ -5,8 +5,8 @@ server:
   # Basic TLS configuration for the main data listener
   tls:
     enabled: true
-    cert_file: "/path/to/server.crt"
-    key_file: "/path/to/server.key"
+    cert_file: "../../build/certs/server.crt"
+    key_file: "../../build/certs/server.key"
     min_version: "1.2"
     cipher_suites:
       - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
@@ -17,17 +17,17 @@ server:
     # Optional client certificate authentication
     client_auth:
       required: false
-      ca_file: "/path/to/client-ca.crt"
+      ca_file: "../../build/certs/ca.crt"
       verify_mode: "verify-if-given"
 
     # SNI support for multiple domains
     sni:
       "api.example.com":
-        cert_file: "/path/to/api.crt"
-        key_file: "/path/to/api.key"
+        cert_file: "../../build/certs/api.crt"
+        key_file: "../../build/certs/api.key"
       "admin.example.com":
-        cert_file: "/path/to/admin.crt"
-        key_file: "/path/to/admin.key"
+        cert_file: "../../build/certs/api.crt"
+        key_file: "../../build/certs/api.key"
 
   # Alternative: Multiple listeners with different configurations
   # listen_params:
@@ -37,8 +37,8 @@ server:
   #     protocol: "https"
   #     tls:
   #       enabled: true
-  #       cert_file: "/path/to/https.crt"
-  #       key_file: "/path/to/https.key"
+  #       cert_file: "../../build/certs/server.crt"
+  #       key_file: "../../build/certs/server.key"
   #       min_version: "1.3"
 
 telemetry:

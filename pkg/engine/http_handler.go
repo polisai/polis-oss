@@ -265,14 +265,6 @@ func (h *DAGHandler) buildPipelineContext(r *http.Request, agentID string) *doma
 		"headers_remaining", len(headers),
 	)
 
-	// Extract TLS context if available
-	var tlsCtx *domain.TLSContext
-	if tlsContextValue := r.Context().Value("tls_context"); tlsContextValue != nil {
-		if extractedTLSCtx, ok := tlsContextValue.(*domain.TLSContext); ok {
-			tlsCtx = extractedTLSCtx
-		}
-	}
-
 	ctx := &domain.PipelineContext{
 		Request: domain.RequestContext{
 			Method:        r.Method,
@@ -286,7 +278,6 @@ func (h *DAGHandler) buildPipelineContext(r *http.Request, agentID string) *doma
 			Streaming:     streaming,
 			StreamingMode: streamingMode,
 			TriggerIndex:  -1,
-			TLS:           tlsCtx, // Include TLS context information
 		},
 		Response: domain.ResponseContext{
 			Headers:  make(map[string][]string),
@@ -310,11 +301,6 @@ func (h *DAGHandler) buildPipelineContext(r *http.Request, agentID string) *doma
 
 	applyIdentityMetadata(ctx, identityMeta)
 	applySessionMetadata(ctx, sessionMeta)
-
-	// Apply TLS metadata to variables if available
-	if tlsCtx != nil {
-		applyTLSMetadata(ctx, tlsCtx)
-	}
 
 	return ctx
 }
@@ -459,28 +445,6 @@ func applySessionMetadata(ctx *domain.PipelineContext, meta sessionMetadata) {
 	}
 	if meta.CostUSD != nil {
 		ctx.Session.EstimatedCostUSD = *meta.CostUSD
-	}
-}
-
-func applyTLSMetadata(ctx *domain.PipelineContext, tlsCtx *domain.TLSContext) {
-	if ctx == nil || tlsCtx == nil {
-		return
-	}
-	if ctx.Variables == nil {
-		ctx.Variables = make(map[string]interface{})
-	}
-
-	// Add TLS information to variables for pipeline nodes to access
-	ctx.Variables["tls.version"] = tlsCtx.Version
-	ctx.Variables["tls.cipher_suite"] = tlsCtx.CipherSuite
-	ctx.Variables["tls.server_name"] = tlsCtx.ServerName
-	ctx.Variables["tls.client_auth"] = tlsCtx.ClientAuth
-	ctx.Variables["tls.negotiated_protocol"] = tlsCtx.NegotiatedProtocol
-	ctx.Variables["tls.handshake_duration_ms"] = tlsCtx.HandshakeDuration.Milliseconds()
-
-	if len(tlsCtx.PeerCertificates) > 0 {
-		ctx.Variables["tls.peer_certificates"] = tlsCtx.PeerCertificates
-		ctx.Variables["tls.peer_certificate_count"] = len(tlsCtx.PeerCertificates)
 	}
 }
 

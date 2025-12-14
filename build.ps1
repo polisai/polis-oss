@@ -56,11 +56,13 @@ function Get-VersionMetadata {
 }
 
 function Get-BinaryName {
+    param([string]$Name = "polis")
+
     if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
-        return "polis.exe"
+        return "$Name.exe"
     }
 
-    return "polis"
+    return $Name
 }
 
 function Invoke-GoCommand {
@@ -146,15 +148,22 @@ function Run-Benchmarks {
 }
 
 function Build-Project {
-    Write-Host "Building binary..." -ForegroundColor Green
-    # Ensure-BuildDir is not needed if we output to root, but keeping it if other things use build dir.
+    Write-Host "Building binaries..." -ForegroundColor Green
+    Ensure-BuildDir
     $meta = Get-VersionMetadata
     $ldflags = "-X main.Version=$($meta.Version) -X main.BuildDate=$($meta.BuildDate) -X main.GitCommit=$($meta.GitCommit)"
-    $binary = Get-BinaryName
-    # Output to root directory instead of build directory
-    $outputPath = $binary 
-    Invoke-GoCommand -Arguments @("build", "-ldflags=$ldflags", "-o", $outputPath, "./cmd/polis-core") -Description "go build"
-    Write-Host "Binary created: $outputPath" -ForegroundColor Cyan
+
+    # Build polis-core
+    $coreBinary = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) { "polis.exe" } else { "polis" }
+    $coreOutputPath = "$BuildDir/$coreBinary"
+    Invoke-GoCommand -Arguments @("build", "-ldflags=$ldflags", "-o", $coreOutputPath, "./cmd/polis-core") -Description "go build polis-core"
+    Write-Host "Binary created: $coreOutputPath" -ForegroundColor Cyan
+
+    # Build polis-cert
+    $certBinary = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) { "polis-cert.exe" } else { "polis-cert" }
+    $certOutputPath = "$BuildDir/$certBinary"
+    Invoke-GoCommand -Arguments @("build", "-ldflags=$ldflags", "-o", $certOutputPath, "./cmd/polis-cert") -Description "go build polis-cert"
+    Write-Host "Binary created: $certOutputPath" -ForegroundColor Cyan
 }
 
 function Install-Project {
@@ -230,10 +239,60 @@ function Run-PreCommit {
     Test-Project
 }
 
+function Build-All {
+    Write-Host "Building all components..." -ForegroundColor Green
+    Build-Project
+    Generate-Certificates
+}
+
+function Generate-Certificates {
+    Write-Host "Generating test certificates..." -ForegroundColor Green
+    Ensure-BuildDir
+
+    $certBinary = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) { "polis-cert.exe" } else { "polis-cert" }
+    $certPath = "$BuildDir/$certBinary"
+
+    if (-not (Test-Path $certPath)) {
+        Write-Host "Certificate tool not found, building it first..." -ForegroundColor Yellow
+        Build-Project
+    }
+
+    $certsDir = "$BuildDir/certs"
+    if (Test-Path $certsDir) {
+        Write-Host "Certificates already exist in $certsDir, skipping generation..." -ForegroundColor Yellow
+        return
+    }
+
+    & $certPath generate -test-suite -output-dir $certsDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "Certificate generation failed with exit code $LASTEXITCODE"
+    }
+
+    Write-Host "Test certificates generated in $certsDir" -ForegroundColor Cyan
+}
+
 function Clean-Project {
     Write-Host "Cleaning build artifacts..." -ForegroundColor Green
-    if (Test-Path $BuildDir) { Remove-Item -Recurse -Force $BuildDir }
-    if (Test-Path $CoverageDir) { Remove-Item -Recurse -Force $CoverageDir }
+
+    # Clean build directory with better error handling
+    if (Test-Path $BuildDir) {
+        try {
+            Get-ChildItem $BuildDir -Recurse | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+            Remove-Item $BuildDir -Force -ErrorAction SilentlyContinue
+        } catch {
+            Write-Host "Warning: Some files in $BuildDir could not be removed (may be in use)" -ForegroundColor Yellow
+        }
+    }
+
+    # Clean coverage directory
+    if (Test-Path $CoverageDir) {
+        try {
+            Remove-Item -Recurse -Force $CoverageDir -ErrorAction SilentlyContinue
+        } catch {
+            Write-Host "Warning: Could not remove $CoverageDir" -ForegroundColor Yellow
+        }
+    }
+
     Invoke-GoCommand -Arguments @("clean") -Description "go clean"
 }
 
@@ -283,7 +342,9 @@ function Show-Help {
     Write-Host "   or: powershell -ExecutionPolicy Bypass -File build.ps1 <command>" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Available commands:" -ForegroundColor Yellow
-    Write-Host "  build            Build the binary"
+    Write-Host "  build            Build all binaries (polis-core and polis-cert) to build/ folder"
+    Write-Host "  build-all        Build binaries and generate test certificates (recommended)"
+    Write-Host "  certs            Generate test certificates in build/certs/"
     Write-Host "  install          Install the binary"
     Write-Host "  test             Run all tests with coverage"
     Write-Host "  test-race        Run all tests with race detector"
@@ -312,6 +373,8 @@ function Show-Help {
 # Execute the requested command
 switch ($Command.ToLowerInvariant()) {
     "build" { Build-Project }
+    "build-all" { Build-All }
+    "certs" { Generate-Certificates }
     "install" { Install-Project }
     "test" { Test-Project }
     "test-race" { Test-Race }
