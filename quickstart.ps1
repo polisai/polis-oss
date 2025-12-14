@@ -32,6 +32,35 @@ function Write-Step {
     Write-Host "→ $Message" -ForegroundColor Cyan
 }
 
+function Invoke-WithSpinner {
+    param(
+        [string]$Message,
+        [scriptblock]$Check
+    )
+
+    Write-Host -NoNewline "$Message "
+
+    $job = Start-Job -ScriptBlock $Check
+    $spins = "|", "/", "-", "\"
+    $i = 0
+
+    while ($job.State -eq 'Running') {
+        Write-Host -NoNewline ("[{0}]" -f $spins[$i % 4])
+        Start-Sleep -Milliseconds 100
+        Write-Host -NoNewline "`b`b`b"
+        $i++
+    }
+
+    # Clear line
+    Write-Host -NoNewline "`r"
+    Write-Host -NoNewline (" " * ($Message.Length + 5))
+    Write-Host -NoNewline "`r"
+
+    $result = Receive-Job $job
+    Remove-Job $job
+    return $result
+}
+
 # Welcome message
 Write-Header "Welcome to Polis - Secure AI Proxy"
 Write-Host "Get from zero to 'wow' in under 5 minutes!"
@@ -48,59 +77,88 @@ function Test-Requirements {
     $pythonAvailable = $false
 
     # Check Docker
-    try {
-        $dockerVersion = docker --version 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            docker info 2>$null | Out-Null
+    $dockerStatus = Invoke-WithSpinner -Message "Checking Docker..." -Check {
+        try {
+            $ver = docker --version 2>$null
             if ($LASTEXITCODE -eq 0) {
-                Write-Success "Docker found and running: $dockerVersion"
-                $dockerAvailable = $true
-            } else {
-                Write-Info "Docker found but not running (needed for Option A)"
+                docker info 2>$null | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    return [PSCustomObject]@{ Available = $true; Version = $ver }
+                }
+                return [PSCustomObject]@{ Available = $false; Reason = "NotRunning" }
             }
-        }
-    } catch {
+        } catch {}
+        return [PSCustomObject]@{ Available = $false; Reason = "NotFound" }
+    }
+
+    if ($dockerStatus.Available) {
+        Write-Success "Docker found and running: $($dockerStatus.Version)"
+        $dockerAvailable = $true
+    } elseif ($dockerStatus.Reason -eq "NotRunning") {
+        Write-Info "Docker found but not running (needed for Option A)"
+    } else {
         Write-Info "Docker not available (needed for Option A)"
     }
 
     # Check Go
-    try {
-        $goVersion = go version 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "Go found: $goVersion"
-            $goAvailable = $true
-        }
-    } catch {
+    $goStatus = Invoke-WithSpinner -Message "Checking Go..." -Check {
+        try {
+            $ver = go version 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                return [PSCustomObject]@{ Available = $true; Version = $ver }
+            }
+        } catch {}
+        return [PSCustomObject]@{ Available = $false }
+    }
+
+    if ($goStatus.Available) {
+        Write-Success "Go found: $($goStatus.Version)"
+        $goAvailable = $true
+    } else {
         Write-Info "Go not found (needed for Option B)"
     }
 
     # Check Python
-    try {
-        $pythonVersion = python --version 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "Python found: $pythonVersion"
-            $pythonAvailable = $true
-        } else {
-            $pythonVersion = python3 --version 2>$null
+    $pythonStatus = Invoke-WithSpinner -Message "Checking Python..." -Check {
+        try {
+            $ver = python --version 2>$null
             if ($LASTEXITCODE -eq 0) {
-                Write-Success "Python found: $pythonVersion"
-                $pythonAvailable = $true
+                return [PSCustomObject]@{ Available = $true; Version = $ver }
             }
-        }
-    } catch {
+            $ver = python3 --version 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                return [PSCustomObject]@{ Available = $true; Version = $ver }
+            }
+        } catch {}
+        return [PSCustomObject]@{ Available = $false }
+    }
+
+    if ($pythonStatus.Available) {
+        Write-Success "Python found: $($pythonStatus.Version)"
+        $pythonAvailable = $true
+    } else {
         Write-Info "Python not found (needed for local mock server)"
     }
 
     # Check kubectl
-    try {
-        kubectl cluster-info --request-timeout=3s 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "kubectl found and cluster accessible"
-            $kubectlAvailable = $true
-        } else {
-            Write-Info "kubectl found but no cluster access (needed for Option C)"
+    $kubectlStatus = Invoke-WithSpinner -Message "Checking kubectl..." -Check {
+        try {
+            kubectl cluster-info --request-timeout=3s 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                return "Available"
+            }
+            return "FoundNoCluster"
+        } catch {
+            return "NotFound"
         }
-    } catch {
+    }
+
+    if ($kubectlStatus -eq "Available") {
+        Write-Success "kubectl found and cluster accessible"
+        $kubectlAvailable = $true
+    } elseif ($kubectlStatus -eq "FoundNoCluster") {
+        Write-Info "kubectl found but no cluster access (needed for Option C)"
+    } else {
         Write-Info "kubectl not found (needed for Option C)"
     }
 

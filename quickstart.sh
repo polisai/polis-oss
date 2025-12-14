@@ -41,6 +41,20 @@ print_step() {
     echo -e "${CYAN}${BOLD}→ $1${NC}"
 }
 
+spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+    while kill -0 $pid 2>/dev/null; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
 # Welcome message
 print_header "Welcome to Polis - Secure AI Proxy"
 echo "Get from zero to 'wow' in under 5 minutes!"
@@ -58,25 +72,63 @@ check_requirements() {
     local python_available=false
 
     # Check Docker
-    if command -v docker &> /dev/null && docker info &> /dev/null; then
+    echo -n "Checking Docker... "
+    local tmp_docker=$(mktemp)
+    (
+        if command -v docker &> /dev/null && docker info &> /dev/null; then
+            echo "true" > "$tmp_docker"
+        else
+            echo "false" > "$tmp_docker"
+        fi
+    ) &
+    spinner $!
+    printf "\r\033[K"
+
+    if [ "$(cat $tmp_docker)" = "true" ]; then
         docker_version=$(docker --version | cut -d' ' -f3 | cut -d',' -f1)
         print_success "Docker found and running: v$docker_version"
         docker_available=true
     else
         print_info "Docker not available (needed for Option A)"
     fi
+    rm "$tmp_docker"
 
     # Check Go
-    if command -v go &> /dev/null; then
+    echo -n "Checking Go... "
+    local tmp_go=$(mktemp)
+    (
+        if command -v go &> /dev/null; then
+            echo "true" > "$tmp_go"
+        else
+            echo "false" > "$tmp_go"
+        fi
+    ) &
+    spinner $!
+    printf "\r\033[K"
+
+    if [ "$(cat $tmp_go)" = "true" ]; then
         go_version=$(go version | cut -d' ' -f3)
         print_success "Go found: $go_version"
         go_available=true
     else
         print_info "Go not found (needed for Option B)"
     fi
+    rm "$tmp_go"
 
     # Check Python
-    if command -v python3 &> /dev/null || command -v python &> /dev/null; then
+    echo -n "Checking Python... "
+    local tmp_python=$(mktemp)
+    (
+        if command -v python3 &> /dev/null || command -v python &> /dev/null; then
+            echo "true" > "$tmp_python"
+        else
+            echo "false" > "$tmp_python"
+        fi
+    ) &
+    spinner $!
+    printf "\r\033[K"
+
+    if [ "$(cat $tmp_python)" = "true" ]; then
         python_cmd=$(command -v python3 || command -v python)
         python_version=$($python_cmd --version 2>&1)
         print_success "Python found: $python_version"
@@ -84,15 +136,33 @@ check_requirements() {
     else
         print_info "Python not found (needed for local mock server)"
     fi
+    rm "$tmp_python"
 
     # Check kubectl
-    if command -v kubectl &> /dev/null; then
-        if kubectl cluster-info --request-timeout=3s &> /dev/null; then
-            print_success "kubectl found and cluster accessible"
-            kubectl_available=true
+    echo -n "Checking kubectl... "
+    local tmp_kubectl=$(mktemp)
+    (
+        if command -v kubectl &> /dev/null; then
+            if kubectl cluster-info --request-timeout=3s &> /dev/null; then
+                echo "true" > "$tmp_kubectl"
+            else
+                echo "found_no_cluster" > "$tmp_kubectl"
+            fi
         else
-            print_info "kubectl found but no cluster access (needed for Option C)"
+            echo "false" > "$tmp_kubectl"
         fi
+    ) &
+    spinner $!
+    printf "\r\033[K"
+
+    local k_status=$(cat "$tmp_kubectl")
+    rm "$tmp_kubectl"
+
+    if [ "$k_status" = "true" ]; then
+        print_success "kubectl found and cluster accessible"
+        kubectl_available=true
+    elif [ "$k_status" = "found_no_cluster" ]; then
+        print_info "kubectl found but no cluster access (needed for Option C)"
     else
         print_info "kubectl not found (needed for Option C)"
     fi
