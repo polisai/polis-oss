@@ -265,6 +265,14 @@ func (h *DAGHandler) buildPipelineContext(r *http.Request, agentID string) *doma
 		"headers_remaining", len(headers),
 	)
 
+	// Extract TLS context if available
+	var tlsContext *domain.TLSContext
+	if tlsCtx := r.Context().Value("tls_context"); tlsCtx != nil {
+		if tls, ok := tlsCtx.(*domain.TLSContext); ok {
+			tlsContext = tls
+		}
+	}
+
 	ctx := &domain.PipelineContext{
 		Request: domain.RequestContext{
 			Method:        r.Method,
@@ -278,6 +286,7 @@ func (h *DAGHandler) buildPipelineContext(r *http.Request, agentID string) *doma
 			Streaming:     streaming,
 			StreamingMode: streamingMode,
 			TriggerIndex:  -1,
+			TLS:           tlsContext,
 		},
 		Response: domain.ResponseContext{
 			Headers:  make(map[string][]string),
@@ -301,6 +310,20 @@ func (h *DAGHandler) buildPipelineContext(r *http.Request, agentID string) *doma
 
 	applyIdentityMetadata(ctx, identityMeta)
 	applySessionMetadata(ctx, sessionMeta)
+
+	// Add TLS variables if TLS context is available
+	if tlsContext != nil {
+		ctx.Variables["tls.version"] = tlsContext.Version
+		ctx.Variables["tls.cipher_suite"] = tlsContext.CipherSuite
+		ctx.Variables["tls.server_name"] = tlsContext.ServerName
+		ctx.Variables["tls.client_auth"] = tlsContext.ClientAuth
+		ctx.Variables["tls.handshake_duration_ms"] = float64(tlsContext.HandshakeDuration.Nanoseconds()) / 1e6
+		ctx.Variables["tls.peer_certificates"] = tlsContext.PeerCertificates
+		ctx.Variables["tls.peer_certificate_count"] = len(tlsContext.PeerCertificates)
+		if tlsContext.NegotiatedProtocol != "" {
+			ctx.Variables["tls.negotiated_protocol"] = tlsContext.NegotiatedProtocol
+		}
+	}
 
 	return ctx
 }
