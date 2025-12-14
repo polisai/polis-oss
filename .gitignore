@@ -49,3 +49,8 @@ Thumbs.db
 
 # Settings
 .env
+.env.local
+
+
+# Kiro
+.kiro

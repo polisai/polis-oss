@@ -19,6 +19,20 @@ const (
 	version = "1.0.0"
 )
 
+// CertificateInfo contains information about a certificate
+// Duplicated here to avoid circular dependencies and because it's used by the CLI tool
+type CertificateInfo struct {
+	ServerName  string
+	Subject     string
+	Issuer      string
+	NotBefore   time.Time
+	NotAfter    time.Time
+	DNSNames    []string
+	IPAddresses []net.IP
+	CertFile    string
+	KeyFile     string
+}
+
 func main() {
 	var (
 		generateCmd = flag.NewFlagSet("generate", flag.ExitOnError)
@@ -290,22 +304,27 @@ Use ` + "`polis-cert inspect -cert <file>`" + ` to check certificate details and
 }
 
 func handleInspect(certFile, format string) {
-	info, err := poliscert.GetCertificateFileInfo(certFile)
+	inspector := NewCertificateInspector()
+	info, err := inspector.InspectCertificateFile(certFile)
 	if err != nil {
 		log.Fatalf("Failed to inspect certificate: %v", err)
 	}
 
+	// Convert DetailedCertificateInfo to CertificateInfo for simple output if needed
+	// Or use full info
+	basicInfo := info.CertificateInfo
+
 	switch format {
 	case "text":
-		printCertificateInfoText(info)
+		printCertificateInfoText(basicInfo)
 	case "json":
-		printCertificateInfoJSON(info)
+		printCertificateInfoJSON(basicInfo)
 	default:
 		log.Fatalf("Unknown format: %s (supported: text, json)", format)
 	}
 }
 
-func printCertificateInfoText(info *poliscert.CertificateInfo) {
+func printCertificateInfoText(info *CertificateInfo) {
 	fmt.Printf("Certificate Information:\n")
 	fmt.Printf("  File: %s\n", info.CertFile)
 	fmt.Printf("  Subject: %s\n", info.Subject)
@@ -340,7 +359,7 @@ func printCertificateInfoText(info *poliscert.CertificateInfo) {
 	}
 }
 
-func printCertificateInfoJSON(info *poliscert.CertificateInfo) {
+func printCertificateInfoJSON(info *CertificateInfo) {
 	// Simple JSON output without external dependencies
 	fmt.Printf("{\n")
 	fmt.Printf("  \"file\": \"%s\",\n", info.CertFile)
@@ -405,12 +424,13 @@ func handleValidate(certFile, keyFile string, verbose bool) {
 
 	// Get and display certificate info if verbose
 	if verbose {
-		info, err := poliscert.GetCertificateFileInfo(certFile)
+		inspector := NewCertificateInspector()
+		info, err := inspector.InspectCertificateFile(certFile)
 		if err != nil {
 			fmt.Printf("⚠️  Could not read certificate details: %v\n", err)
 		} else {
 			fmt.Printf("\nCertificate Details:\n")
-			printCertificateInfoText(info)
+			printCertificateInfoText(info.CertificateInfo)
 		}
 	}
 
