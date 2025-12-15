@@ -6,7 +6,12 @@ logging:
 server:
   listenParams:
     - address: ":8095"
-      protocol: "http"
+      protocol: "https"
+      tls:
+        enabled: true
+        cert_file: "../../build/certs/server.crt"
+        key_file: "../../build/certs/server.key"
+        min_version: "1.2"
 
 pipelines:
   - id: observability-demo

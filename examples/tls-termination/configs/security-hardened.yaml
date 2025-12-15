@@ -1,0 +1,151 @@
+# Security-hardened TLS configuration example
+# This configuration demonstrates best practices for TLS security and performance
+
+server:
+  admin_address: ":19090"
+  data_address: ":8090"
+
+  # TLS configuration with security hardening
+  tls:
+    enabled: true
+    cert_file: "/path/to/server.crt"
+    key_file: "/path/to/server.key"
+
+    # Security: Use TLS 1.2 minimum (1.3 preferred)
+    min_version: "1.2"
+    # max_version: "1.3"  # Uncomment to restrict to TLS 1.3 only
+
+    # Security: Use only secure cipher suites with forward secrecy
+    cipher_suites:
+      # TLS 1.2 ECDHE with AES-GCM (strongest, forward secrecy)
+      - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+      - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+      - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+      - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+      # ChaCha20-Poly1305 for mobile/ARM optimization
+      - "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
+      - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+
+    # Optional: Mutual TLS for enhanced security
+    client_auth:
+      required: false  # Set to true for mTLS
+      ca_file: "/path/to/client-ca.crt"
+      verify_mode: "strict"  # or "trust-bundle-only"
+
+    # SNI support for multiple domains
+    sni:
+      "api.example.com":
+        cert_file: "/path/to/api.crt"
+        key_file: "/path/to/api.key"
+      "secure.example.com":
+        cert_file: "/path/to/secure.crt"
+        key_file: "/path/to/secure.key"
+
+# Alternative: Multi-listener configuration for mixed HTTP/HTTPS
+# server:
+#   listen_params:
+#     # HTTP listener for health checks (internal only)
+#     - address: "127.0.0.1:8080"
+#       protocol: "http"
+#
+#     # HTTPS listener for public traffic
+#     - address: ":8443"
+#       protocol: "https"
+#       tls:
+#         enabled: true
+#         cert_file: "/path/to/server.crt"
+#         key_file: "/path/to/server.key"
+#         min_version: "1.2"
+#         cipher_suites:
+#           - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+#           - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+
+pipelines:
+  - id: "secure-pipeline"
+    version: 1
+    description: "Security-hardened pipeline with TLS termination"
+    agentId: "*"
+    protocol: "http"  # Processes decrypted HTTP after TLS termination
+
+    nodes:
+      # DLP scanning on decrypted HTTPS traffic
+      - id: "dlp-scan"
+        type: "policy.dlp"
+        config:
+          rules: ["pii-detection", "credit-card", "ssn"]
+          action: "redact"
+
+      # WAF protection on decrypted traffic
+      - id: "waf-protection"
+        type: "policy.waf"
+        config:
+          ruleset: "owasp-core"
+          mode: "blocking"
+
+      # LLM-based content analysis
+      - id: "llm-analysis"
+        type: "llm_judge.v1"
+        config:
+          provider: "openai"
+          model: "gpt-4"
+          rules: ["content-safety", "compliance"]
+
+      # Secure upstream connection
+      - id: "secure-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "https://api.backend.com"
+
+          # Upstream TLS configuration with security
+          upstream_tls:
+            enabled: true
+            server_name: "api.backend.com"
+            min_version: "1.2"
+
+            # Use secure cipher suites for upstream
+            cipher_suites:
+              - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+              - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+
+            # Optional: Client certificate for upstream mTLS
+            # cert_file: "/path/to/client.crt"
+            # key_file: "/path/to/client.key"
+
+            # Optional: Custom CA bundle for upstream validation
+            # ca_file: "/path/to/upstream-ca.crt"
+
+            # Security: Never skip certificate verification in production
+            insecure_skip_verify: false
+
+# Telemetry configuration for monitoring TLS performance
+telemetry:
+  otlp_endpoint: "https://otel-collector.example.com:4317"
+  insecure: false
+
+# Logging configuration for TLS events
+logging:
+  level: "info"  # Use "debug" for detailed TLS handshake logging
+
+# Security Notes:
+# 1. Certificate files should have restricted permissions (600)
+# 2. Private keys should be stored securely and rotated regularly
+# 3. Use certificate monitoring to track expiration dates
+# 4. Enable HSTS headers for web applications
+# 5. Consider using certificate pinning for critical connections
+# 6. Regularly update cipher suites based on security recommendations
+# 7. Monitor TLS metrics for performance and security anomalies
+# 8. Use strong entropy sources for key generation
+# 9. Implement proper certificate chain validation
+# 10. Consider using hardware security modules (HSMs) for key storage
+
+# Performance Notes:
+# 1. Session resumption is enabled by default for performance
+# 2. Connection pooling is used for upstream connections
+# 3. Cipher suite order prioritizes performance while maintaining security
+# 4. TLS 1.3 provides better performance than 1.2 when available
+# 5. ECDHE cipher suites provide good performance with forward secrecy
+# 6. ChaCha20-Poly1305 is optimized for ARM/mobile devices
+# 7. Session ticket keys are rotated automatically for security
+# 8. Buffer pooling reduces memory allocation overhead
+# 9. Handshake timeouts prevent resource exhaustion
+# 10. Certificate caching improves SNI performance

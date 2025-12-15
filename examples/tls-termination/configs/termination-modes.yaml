@@ -1,0 +1,320 @@
+# TLS Termination Modes Configuration
+# This example demonstrates all supported TLS termination modes:
+# - HTTPS → HTTP (TLS termination)
+# - HTTPS → HTTPS (TLS termination + re-encryption)
+# - HTTP → HTTPS (TLS origination)
+# - Passthrough (no termination)
+
+server:
+  admin_address: ":19090"
+
+  listen_params:
+    # HTTPS listener for termination modes
+    - address: ":8443"
+      protocol: "https"
+      tls:
+        enabled: true
+        cert_file: "./certs/server.crt"
+        key_file: "./certs/server.key"
+        min_version: "1.2"
+
+    # HTTP listener for origination mode
+    - address: ":8080"
+      protocol: "http"
+
+telemetry:
+  otlp_endpoint: "http://localhost:4317"
+  insecure: true
+
+control_plane:
+  address: "localhost:9090"
+  mtls_enabled: false
+
+pipelines:
+  # Mode 1: HTTPS → HTTP (TLS Termination)
+  # Client connects with HTTPS, proxy terminates TLS, forwards as HTTP
+  - id: "https-to-http"
+    version: 1
+    description: "HTTPS to HTTP termination mode"
+    agentId: "termination-agent"
+    protocol: "http"  # Processes decrypted HTTP
+    match:
+      headers:
+        x-termination-mode: ["https-to-http"]
+      listener_port: 8443
+    nodes:
+      # Add termination info to headers
+      - id: "termination-headers"
+        type: "transform.headers"
+        config:
+          add:
+            "x-forwarded-proto": "https"
+            "x-tls-terminated": "true"
+            "x-tls-version": "${request.tls.version}"
+            "x-tls-cipher": "${request.tls.cipher_suite}"
+
+      # DLP scanning on decrypted traffic
+      - id: "dlp-scan"
+        type: "policy.dlp"
+        config:
+          rules: ["pii-detection"]
+          action: "log"
+
+      # Forward to HTTP backend
+      - id: "http-backend"
+        type: "egress.http"
+        config:
+          upstream_url: "http://backend.internal:8080"
+          # No upstream_tls - forwards as plain HTTP
+
+  # Mode 2: HTTPS → HTTPS (TLS Termination + Re-encryption)
+  # Client connects with HTTPS, proxy terminates TLS, processes traffic, re-encrypts to backend
+  - id: "https-to-https"
+    version: 1
+    description: "HTTPS to HTTPS with TLS termination and re-encryption"
+    agentId: "reencryption-agent"
+    protocol: "http"
+    match:
+      headers:
+        x-termination-mode: ["https-to-https"]
+      listener_port: 8443
+    nodes:
+      # Security processing on decrypted traffic
+      - id: "security-scan"
+        type: "policy.waf"
+        config:
+          ruleset: "owasp-core"
+          action: "block"
+
+      - id: "content-filter"
+        type: "policy.dlp"
+        config:
+          rules: ["sensitive-data", "malware-detection"]
+          action: "block"
+
+      # Add processing headers
+      - id: "processing-headers"
+        type: "transform.headers"
+        config:
+          add:
+            "x-processed-by": "polis-proxy"
+            "x-security-scanned": "true"
+
+      # Re-encrypt and forward to HTTPS backend
+      - id: "https-backend"
+        type: "egress.http"
+        config:
+          upstream_url: "https://secure-backend.internal:8443"
+          upstream_tls:
+            enabled: true
+            server_name: "secure-backend.internal"
+            ca_file: "./certs/backend-ca.crt"
+            cert_file: "./certs/client.crt"
+            key_file: "./certs/client.key"
+            min_version: "1.2"
+            cipher_suites:
+              - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+              - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+
+  # Mode 3: HTTP → HTTPS (TLS Origination)
+  # Client connects with HTTP, proxy accepts plain HTTP, encrypts to backend
+  - id: "http-to-https"
+    version: 1
+    description: "HTTP to HTTPS with TLS origination"
+    agentId: "origination-agent"
+    protocol: "http"
+    match:
+      headers:
+        x-termination-mode: ["http-to-https"]
+      listener_port: 8080
+    nodes:
+      # Process plain HTTP traffic
+      - id: "http-processing"
+        type: "transform.headers"
+        config:
+          add:
+            "x-forwarded-proto": "http"
+            "x-tls-originated": "true"
+
+      # Rate limiting for HTTP traffic
+      - id: "http-rate-limit"
+        type: "governance.ratelimit"
+        config:
+          requests_per_minute: 5000
+
+      # Encrypt and forward to HTTPS backend
+      - id: "originate-tls"
+        type: "egress.http"
+        config:
+          upstream_url: "https://encrypted-backend.internal:8443"
+          upstream_tls:
+            enabled: true
+            server_name: "encrypted-backend.internal"
+            min_version: "1.2"
+            # Use system trust store for validation
+
+  # Mode 4: HTTPS → HTTPS with mTLS
+  # Client connects with HTTPS, proxy terminates TLS, uses client cert for backend
+  - id: "https-to-mtls"
+    version: 1
+    description: "HTTPS to HTTPS with mutual TLS to backend"
+    agentId: "mtls-agent"
+    protocol: "http"
+    match:
+      headers:
+        x-termination-mode: ["https-to-mtls"]
+      listener_port: 8443
+    nodes:
+      # Validate client certificate information
+      - id: "client-cert-validation"
+        type: "policy.opa"
+        config:
+          policy: |
+            package client_cert_validation
+
+            default allow = false
+
+            # Allow if client provided valid certificate
+            allow {
+              input.tls.client_auth == true
+              input.tls.peer_certificates[0].subject.organization == "Trusted Org"
+            }
+
+            # Log certificate information
+            log_cert_info {
+              input.tls.peer_certificates[0]
+            }
+
+      # Forward with mutual TLS to backend
+      - id: "mtls-backend"
+        type: "egress.http"
+        config:
+          upstream_url: "https://mtls-backend.internal:8443"
+          upstream_tls:
+            enabled: true
+            server_name: "mtls-backend.internal"
+            ca_file: "./certs/backend-ca.crt"
+            cert_file: "./certs/backend-client.crt"
+            key_file: "./certs/backend-client.key"
+            min_version: "1.2"
+
+  # Mode 5: End-to-End Encryption with Different Certificates
+  # Client uses one certificate, backend uses different certificate
+  - id: "e2e-different-certs"
+    version: 1
+    description: "End-to-end encryption with certificate translation"
+    agentId: "e2e-agent"
+    protocol: "http"
+    match:
+      headers:
+        x-termination-mode: ["e2e-encryption"]
+      listener_port: 8443
+    nodes:
+      # Extract client certificate information
+      - id: "cert-translation"
+        type: "transform.headers"
+        config:
+          add:
+            "x-client-cert-cn": "${request.tls.peer_certificates[0].subject.common_name}"
+            "x-client-cert-org": "${request.tls.peer_certificates[0].subject.organization}"
+            "x-client-cert-fingerprint": "${request.tls.peer_certificates[0].fingerprint}"
+
+      # Use different client certificate for backend
+      - id: "backend-with-translation"
+        type: "egress.http"
+        config:
+          upstream_url: "https://partner-backend.external:8443"
+          upstream_tls:
+            enabled: true
+            server_name: "partner-backend.external"
+            ca_file: "./certs/partner-ca.crt"
+            cert_file: "./certs/partner-client.crt"
+            key_file: "./certs/partner-client.key"
+            min_version: "1.2"
+
+  # Mode 6: Development Mode with Insecure Skip Verify
+  # For testing with self-signed or invalid certificates
+  - id: "dev-insecure"
+    version: 1
+    description: "Development mode with insecure TLS"
+    agentId: "dev-agent"
+    protocol: "http"
+    match:
+      headers:
+        x-termination-mode: ["dev-insecure"]
+      listener_port: 8443
+    nodes:
+      # Add warning headers for development
+      - id: "dev-warnings"
+        type: "transform.headers"
+        config:
+          add:
+            "x-dev-mode": "true"
+            "x-tls-verification": "disabled"
+            "x-warning": "insecure-tls-configuration"
+
+      # Skip certificate verification (development only!)
+      - id: "insecure-backend"
+        type: "egress.http"
+        config:
+          upstream_url: "https://dev-backend.localhost:8443"
+          upstream_tls:
+            enabled: true
+            insecure_skip_verify: true  # NEVER use in production!
+            min_version: "1.2"
+
+  # Mode 7: Custom CA Bundle
+  # Use private/corporate certificate authority
+  - id: "custom-ca"
+    version: 1
+    description: "Custom CA bundle for private PKI"
+    agentId: "custom-ca-agent"
+    protocol: "http"
+    match:
+      headers:
+        x-termination-mode: ["custom-ca"]
+      listener_port: 8443
+    nodes:
+      # Add CA information to headers
+      - id: "ca-headers"
+        type: "transform.headers"
+        config:
+          add:
+            "x-ca-bundle": "corporate-pki"
+            "x-cert-validation": "custom-ca"
+
+      # Use custom CA bundle
+      - id: "custom-ca-backend"
+        type: "egress.http"
+        config:
+          upstream_url: "https://internal-api.corp:8443"
+          upstream_tls:
+            enabled: true
+            server_name: "internal-api.corp"
+            ca_file: "./certs/corporate-ca-bundle.crt"
+            min_version: "1.2"
+
+  # Default pipeline for unmatched requests
+  - id: "default-termination"
+    version: 1
+    description: "Default TLS termination pipeline"
+    agentId: "*"
+    protocol: "http"
+    nodes:
+      # Add default termination headers
+      - id: "default-headers"
+        type: "transform.headers"
+        config:
+          add:
+            "x-termination-mode": "default"
+            "x-forwarded-proto": "https"
+
+      # Default backend
+      - id: "default-backend"
+        type: "egress.http"
+        config:
+          upstream_url: "http://default-backend.internal:8080"
+
+logging:
+  level: "info"
+  format: "json"

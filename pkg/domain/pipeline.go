@@ -2,6 +2,7 @@ package domain
 
 import (
 	"sync"
+	"time"
 )
 
 // Pipeline represents a per-agent DAG of processing nodes.
@@ -149,6 +150,7 @@ type RequestContext struct {
 	StreamingMode string
 	TriggerType   string
 	TriggerIndex  int
+	TLS           *TLSContext `json:"tls,omitempty"` // TLS connection information
 }
 
 // SessionContext holds session-level aggregates.
@@ -205,6 +207,17 @@ type TelemetryRedaction struct {
 	Strategy  string
 	Reason    string
 	Source    string
+}
+
+// TLSContext holds TLS connection information for pipeline processing
+type TLSContext struct {
+	Version            string        `json:"version"`
+	CipherSuite        string        `json:"cipher_suite"`
+	ServerName         string        `json:"server_name,omitempty"`
+	PeerCertificates   []string      `json:"peer_certificates,omitempty"`
+	NegotiatedProtocol string        `json:"negotiated_protocol,omitempty"`
+	HandshakeDuration  time.Duration `json:"handshake_duration"`
+	ClientAuth         bool          `json:"client_auth"`
 }
 
 // BudgetContext holds session/goal budget limits.

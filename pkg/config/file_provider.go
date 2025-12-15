@@ -85,6 +85,32 @@ func (p *FileConfigProvider) Subscribe() <-chan domain.Snapshot {
 	return ch
 }
 
+// GetConfig returns the current configuration parsed from the file
+func (p *FileConfigProvider) GetConfig() (*Config, error) {
+	// #nosec G304 -- File path is configured at startup
+	data, err := os.ReadFile(p.path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		if jsonErr := json.Unmarshal(data, &cfg); jsonErr != nil {
+			return nil, fmt.Errorf("failed to parse config file: %v", err)
+		}
+	}
+
+	// Apply environment variable overrides
+	applyEnvOverrides(&cfg)
+
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	return &cfg, nil
+}
+
 // Close stops the watcher and cleans up resources.
 func (p *FileConfigProvider) Close() error {
 	p.cancel()

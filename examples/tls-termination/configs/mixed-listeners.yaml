@@ -1,0 +1,137 @@
+# Mixed HTTP/HTTPS Listeners Configuration
+# This example shows how to run both HTTP and HTTPS listeners simultaneously
+
+server:
+  admin_address: ":19090"
+
+  # Multiple listeners with different protocols
+  listen_params:
+    # HTTP listener for internal/health checks
+    - address: ":8080"
+      protocol: "http"
+
+    # HTTPS listener for external traffic
+    - address: ":8443"
+      protocol: "https"
+      tls:
+        enabled: true
+        cert_file: "./certs/server.crt"
+        key_file: "./certs/server.key"
+        min_version: "1.2"
+        cipher_suites:
+          - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+          - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+          - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+          - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+
+    # Additional HTTPS listener with client auth for admin
+    - address: ":9443"
+      protocol: "https"
+      tls:
+        enabled: true
+        cert_file: "./certs/admin.crt"
+        key_file: "./certs/admin.key"
+        min_version: "1.3"  # Require TLS 1.3 for admin
+        client_auth:
+          required: true
+          ca_file: "./certs/admin-ca.crt"
+          verify_mode: "strict"
+
+telemetry:
+  otlp_endpoint: "http://localhost:4317"
+  insecure: true
+
+control_plane:
+  address: "localhost:9090"
+  mtls_enabled: false
+
+pipelines:
+  # HTTP pipeline for health checks and internal traffic
+  - id: "http-pipeline"
+    version: 1
+    description: "HTTP pipeline for internal traffic"
+    agentId: "*"
+    protocol: "http"
+    match:
+      listener_port: 8080
+    nodes:
+      # Simple health check endpoint
+      - id: "health-check"
+        type: "transform.headers"
+        config:
+          add:
+            "x-health": "ok"
+
+      - id: "internal-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://internal-backend.local:8080"
+
+  # HTTPS pipeline for external traffic with full security
+  - id: "https-pipeline"
+    version: 1
+    description: "HTTPS pipeline for external traffic"
+    agentId: "*"
+    protocol: "http"  # Decrypted HTTP after TLS termination
+    match:
+      listener_port: 8443
+    nodes:
+      - id: "rate-limit"
+        type: "governance.ratelimit"
+        config:
+          requests_per_minute: 5000
+
+      - id: "waf-protection"
+        type: "policy.waf"
+        config:
+          ruleset: "owasp-core"
+
+      - id: "dlp-scan"
+        type: "policy.dlp"
+        config:
+          rules: ["pii-detection"]
+
+      - id: "external-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "https://external-api.example.com"
+          upstream_tls:
+            enabled: true
+            min_version: "1.2"
+
+  # Admin pipeline with strict mTLS requirements
+  - id: "admin-pipeline"
+    version: 1
+    description: "Admin pipeline with mTLS authentication"
+    agentId: "*"
+    protocol: "http"
+    match:
+      listener_port: 9443
+    nodes:
+      - id: "admin-policy"
+        type: "policy.opa"
+        config:
+          policy: |
+            package admin_access
+
+            default allow = false
+
+            # Only allow if client certificate is present and valid
+            allow {
+              input.tls.client_auth == true
+              input.tls.peer_certificates[0]
+            }
+
+      - id: "audit-log"
+        type: "telemetry.log"
+        config:
+          level: "info"
+          message: "Admin access: ${request.method} ${request.path}"
+
+      - id: "admin-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://admin-backend.internal:8080"
+
+logging:
+  level: "info"
