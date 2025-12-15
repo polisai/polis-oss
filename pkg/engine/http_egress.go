@@ -291,8 +291,11 @@ func (h *DAGHandler) executeEgressHTTP(ctx context.Context, w http.ResponseWrite
 			rawPayload []byte
 		)
 
-		switch mode {
-		case "buffered":
+		contentType := resp.Header.Get("Content-Type")
+		isSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream")
+
+		switch {
+		case mode == "buffered":
 			rawPayload, err = io.ReadAll(bodyReader)
 			if err != nil {
 				return fmt.Errorf("dlp: failed to read response: %w", err)
@@ -318,6 +321,11 @@ func (h *DAGHandler) executeEgressHTTP(ctx context.Context, w http.ResponseWrite
 					return fmt.Errorf("failed to write response body: %w", writeErr)
 				}
 			}
+		case isSSE:
+			// Special handling for Server-Sent Events (SSE) to preserve framing
+			h.logger.Debug("dlp: engaging sse-aware redaction", "target_url", targetURL)
+			dlpReport, dlpErr = redactSSEStream(ctx, bodyReader, streamWriter, cfg)
+
 		default:
 			// Stream mode with hybrid buffering: buffer small responses (<1MB) in memory
 			// to enable fail-open recovery, spill larger responses to stream-only mode.

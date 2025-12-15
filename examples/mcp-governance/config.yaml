@@ -1,0 +1,51 @@
+server:
+  listen_params:
+    - address: ":8085"
+      protocol: "http"
+  tls:
+    enabled: false
+
+policyBundles:
+  - id: "mcp-bundle"
+    version: 1
+    path: "examples/mcp-governance/policies"
+    artifacts:
+      - name: "authz"
+        type: "rego"
+        path: "governance.rego"
+
+pipelines:
+  - id: "mcp-governance-demo-v4"
+    name: "MCP Governance Demo"
+    agentId: "demo-agent-001"
+    protocol: "http"
+    nodes:
+      - type: "mcp.filter"
+        id: "mcp_policy"
+        on:
+          success: "upstream"
+        config:
+          bundleRef: "mcp-bundle"
+          entrypoint: "mcp/authz/decision"
+
+      - type: "egress.http"
+        id: "upstream"
+        # on:
+        #   success: "dlp_sanitizer"
+        config:
+          upstream_url: "http://localhost:8000"
+          timeout: "30s"
+
+      # - type: "dlp.inspect"
+      #   id: "dlp_sanitizer"
+      #   config:
+      #     scope: "response"
+      #     mode: "stream"
+      #     action: "redact"
+          rules:
+             - name: "email"
+               pattern: "(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}"
+               replacement: "[REDACTED_EMAIL]"
+             - name: "api_key"
+               pattern: "(?i)(sk-[a-zA-Z0-9]{32,})"
+               replacement: "[REDACTED_KEY]"

@@ -1167,6 +1167,7 @@ func (e *DAGExecutor) registerDefaultHandlers() {
 	policyHandler := handlers.NewPolicyHandler(e.logger)
 	llmJudgeHandler := llmjudge.NewLLMJudgeHandler(e.logger, nil)
 	detokenizeHandler := handlers.NewDetokenizeHandler(e.logger, e.tokenVault)
+	mcpFilterHandler := handlers.NewMCPFilterHandler(e.logger)
 	allowHandler := &TerminalAllowHandler{logger: e.logger}
 
 	e.handlers.register("auth.jwt.validate", "v1", passthroughHandler, "auth.jwt.validate", "auth", "auth.passthrough")
@@ -1186,6 +1187,7 @@ func (e *DAGExecutor) registerDefaultHandlers() {
 	e.handlers.register("waf.inspect", "v1", wafHandler, "waf.inspect", "waf", "policy.waf")
 	e.handlers.register("dlp.inspect", "v1", dlpHandler, "dlp.inspect", "dlp", "policy.dlp")
 	e.handlers.register("dlp.detokenize", "v1", detokenizeHandler, "dlp.detokenize", "detokenize")
+	e.handlers.register("mcp.filter", "v1", mcpFilterHandler, "mcp.filter")
 	e.handlers.register("llm.judge", "v1", llmJudgeHandler, "llm.judge", "llm_judge")
 	e.handlers.register("terminal.deny", "v1", &TerminalDenyHandler{logger: e.logger}, "terminal.deny", "terminal_deny")
 	e.handlers.register("terminal.error", "v1", &TerminalErrorHandler{logger: e.logger}, "terminal.error", "terminal_error")

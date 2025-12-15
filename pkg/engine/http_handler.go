@@ -368,6 +368,15 @@ func (h *DAGHandler) writeDirectResponse(ctx context.Context, w http.ResponseWri
 		copyResponseHeaders(w.Header(), http.Header(pipelineCtx.Response.Headers))
 	}
 
+	// Check for explicit response body (e.g. from filter nodes returning custom errors)
+	if pipelineCtx != nil {
+		if body, ok := pipelineCtx.Variables["response.body"].([]byte); ok && len(body) > 0 {
+			w.WriteHeader(status)
+			w.Write(body)
+			return
+		}
+	}
+
 	if pipelineCtx != nil && (pipelineCtx.Security.Blocked || status >= http.StatusBadRequest) {
 		code := responseErrorCodeFromContext(pipelineCtx)
 		message := responseErrorMessageFromContext(pipelineCtx, status)
