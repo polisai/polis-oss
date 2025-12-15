@@ -1,0 +1,120 @@
+# TLS Termination Example Configuration
+# This example demonstrates different upstream TLS termination modes
+
+server:
+  admin_address: ":19090"
+  data_address: ":8090"
+
+pipelines:
+  # HTTPS → HTTP Mode: Terminate TLS at proxy, forward as HTTP
+  - id: "https-to-http-pipeline"
+    version: 1
+    description: "HTTPS to HTTP termination mode"
+    agentId: "https-to-http-agent"
+    protocol: "http"
+    nodes:
+      - id: "dlp-scan"
+        type: "policy.dlp"
+        config:
+          rules: ["pii-detection"]
+      - id: "egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://internal-api.company.com"
+          # No upstream_tls config - forwards as HTTP
+
+  # HTTPS → HTTPS Mode: Terminate TLS at proxy, re-encrypt for upstream
+  - id: "https-to-https-pipeline"
+    version: 1
+    description: "HTTPS to HTTPS termination mode with upstream TLS"
+    agentId: "https-to-https-agent"
+    protocol: "http"
+    nodes:
+      - id: "waf-check"
+        type: "policy.waf"
+        config:
+          ruleset: "owasp-core"
+      - id: "egress"
+        type: "egress.http"
+        config:
+          upstream_url: "https://api.external-service.com"
+          upstream_tls:
+            enabled: true
+            server_name: "api.external-service.com"
+            min_version: "1.2"
+            cipher_suites:
+              - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+              - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+
+  # HTTP → HTTPS Mode: Accept HTTP, encrypt for upstream
+  - id: "http-to-https-pipeline"
+    version: 1
+    description: "HTTP to HTTPS termination mode"
+    agentId: "http-to-https-agent"
+    protocol: "http"
+    nodes:
+      - id: "auth"
+        type: "auth.jwt.validate"
+      - id: "egress"
+        type: "egress.http"
+        config:
+          upstream_url: "https://secure-backend.company.com"
+          upstream_tls:
+            enabled: true
+            min_version: "1.2"
+            # Use system trust store for certificate validation
+
+  # Mutual TLS (mTLS) Mode: Client certificate authentication
+  - id: "mtls-pipeline"
+    version: 1
+    description: "Mutual TLS with client certificates"
+    agentId: "mtls-agent"
+    protocol: "http"
+    nodes:
+      - id: "egress"
+        type: "egress.http"
+        config:
+          upstream_url: "https://mtls-api.partner.com"
+          upstream_tls:
+            enabled: true
+            server_name: "mtls-api.partner.com"
+            ca_file: "../../build/certs/ca.crt"
+            cert_file: "../../build/certs/client.crt"
+            key_file: "../../build/certs/client.key"
+            min_version: "1.2"
+
+  # Development Mode: Skip certificate verification
+  - id: "dev-pipeline"
+    version: 1
+    description: "Development mode with insecure skip verify"
+    agentId: "dev-agent"
+    protocol: "http"
+    nodes:
+      - id: "egress"
+        type: "egress.http"
+        config:
+          upstream_url: "https://dev-api.localhost:8443"
+          upstream_tls:
+            enabled: true
+            insecure_skip_verify: true  # Only for development!
+            min_version: "1.2"
+
+  # Custom CA Bundle Mode: Use custom certificate authority
+  - id: "custom-ca-pipeline"
+    version: 1
+    description: "Custom CA bundle for private PKI"
+    agentId: "custom-ca-agent"
+    protocol: "http"
+    nodes:
+      - id: "egress"
+        type: "egress.http"
+        config:
+          upstream_url: "https://internal-api.corp"
+          upstream_tls:
+            enabled: true
+            ca_file: "../../build/certs/ca.crt"
+            server_name: "internal-api.corp"
+            min_version: "1.2"
+            cipher_suites:
+              - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+              - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"

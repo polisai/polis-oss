@@ -9,3 +9,10 @@ telemetry:
 server:
   admin_address: ":19090"
   data_address: ":8090"
+
+  # TLS configuration
+  tls:
+    enabled: true
+    cert_file: "../../../../build/certs/server.crt"
+    key_file: "../../../../build/certs/server.key"
+    min_version: "1.2"

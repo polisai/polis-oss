@@ -1,7 +1,12 @@
 server:
   listenParams:
     - address: ":8090"
-      protocol: "http"
+      protocol: "https"
+      tls:
+        enabled: true
+        cert_file: "../../build/certs/server.crt"
+        key_file: "../../build/certs/server.key"
+        min_version: "1.2"
 
 pipelines:
   - id: basic-passthrough
@@ -12,8 +17,7 @@ pipelines:
       - id: start
         type: egress
         config:
-          # Replace with your upstream URL (e.g., http://localhost:8081 or https://httpbin.org)
-          upstream_url: "https://httpbin.org/anything"
-          upstream_mode: static
+          # Use proxy mode for dynamic upstream based on original request destination
+          upstream_mode: proxy
         on:
           success: ""

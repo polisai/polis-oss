@@ -1,0 +1,232 @@
+# Development TLS Configuration
+# This example shows a development-friendly TLS setup with self-signed certificates
+# and relaxed security settings for easier testing
+
+server:
+  admin_address: ":19090"
+
+  listen_params:
+    # HTTP listener for easy testing
+    - address: ":8080"
+      protocol: "http"
+
+    # HTTPS listener with self-signed certificates
+    - address: ":8443"
+      protocol: "https"
+      tls:
+        enabled: true
+        cert_file: "./certs/server.crt"
+        key_file: "./certs/server.key"
+
+        # Relaxed settings for development
+        min_version: "1.2"
+
+        # Allow common development cipher suites
+        cipher_suites:
+          - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+          - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+          - "TLS_RSA_WITH_AES_256_GCM_SHA384"  # Less secure but widely supported
+          - "TLS_RSA_WITH_AES_128_GCM_SHA256"
+
+        # SNI for local development domains
+        sni:
+          "api.localhost":
+            cert_file: "./certs/api.crt"
+            key_file: "./certs/api.key"
+          "admin.localhost":
+            cert_file: "./certs/admin.crt"
+            key_file: "./certs/admin.key"
+          "test.localhost":
+            cert_file: "./certs/test.crt"
+            key_file: "./certs/test.key"
+
+telemetry:
+  otlp_endpoint: "http://localhost:4317"
+  insecure: true  # Allow insecure connections for local development
+
+control_plane:
+  address: "localhost:9090"
+  mtls_enabled: false  # Disable mTLS for easier development
+
+pipelines:
+  # HTTP development pipeline
+  - id: "dev-http"
+    version: 1
+    description: "Development HTTP pipeline"
+    agentId: "*"
+    protocol: "http"
+    match:
+      listener_port: 8080
+    nodes:
+      # Add development headers
+      - id: "dev-headers"
+        type: "transform.headers"
+        config:
+          add:
+            "x-dev-mode": "true"
+            "x-proxy-version": "${version}"
+            "x-request-id": "${uuid}"
+
+      # Simple logging for debugging
+      - id: "debug-log"
+        type: "telemetry.log"
+        config:
+          level: "debug"
+          message: "HTTP Request: ${request.method} ${request.path}"
+
+      - id: "http-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://localhost:3000"  # Common dev server port
+
+  # HTTPS development pipeline with security testing
+  - id: "dev-https"
+    version: 1
+    description: "Development HTTPS pipeline with security features"
+    agentId: "*"
+    protocol: "http"
+    match:
+      listener_port: 8443
+    nodes:
+      # Add TLS context information for debugging
+      - id: "tls-debug"
+        type: "transform.headers"
+        config:
+          add:
+            "x-tls-version": "${request.tls.version}"
+            "x-tls-cipher": "${request.tls.cipher_suite}"
+            "x-tls-sni": "${request.tls.server_name}"
+
+      # Optional DLP scanning for testing
+      - id: "dev-dlp"
+        type: "policy.dlp"
+        config:
+          rules: ["pii-detection"]
+          action: "log"  # Log only, don't block in development
+
+      # Optional WAF for testing
+      - id: "dev-waf"
+        type: "policy.waf"
+        config:
+          ruleset: "owasp-core"
+          paranoia_level: 1  # Lower paranoia for development
+          action: "log"  # Log only, don't block
+
+      - id: "https-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "https://localhost:3001"
+          upstream_tls:
+            enabled: true
+            insecure_skip_verify: true  # Skip cert verification for dev
+            min_version: "1.2"
+
+  # API development pipeline with SNI
+  - id: "dev-api"
+    version: 1
+    description: "API development pipeline"
+    agentId: "*"
+    protocol: "http"
+    match:
+      headers:
+        host: ["api.localhost"]
+      listener_port: 8443
+    nodes:
+      # API-specific headers
+      - id: "api-headers"
+        type: "transform.headers"
+        config:
+          add:
+            "x-api-version": "v1"
+            "x-environment": "development"
+
+      # Rate limiting for testing
+      - id: "api-rate-limit"
+        type: "governance.ratelimit"
+        config:
+          requests_per_minute: 1000  # Generous limit for development
+          burst_size: 50
+
+      - id: "api-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://localhost:8000"  # API dev server
+
+  # Admin development pipeline
+  - id: "dev-admin"
+    version: 1
+    description: "Admin development pipeline"
+    agentId: "*"
+    protocol: "http"
+    match:
+      headers:
+        host: ["admin.localhost"]
+      listener_port: 8443
+    nodes:
+      # Simple auth for development (not secure!)
+      - id: "dev-auth"
+        type: "policy.opa"
+        config:
+          policy: |
+            package dev_auth
+
+            default allow = true  # Allow all in development
+
+            # Optional: Simple token-based auth for testing
+            # allow {
+            #   input.headers["authorization"][_] == "Bearer dev-token"
+            # }
+
+      - id: "admin-egress"
+        type: "egress.http"
+        config:
+          upstream_url: "http://localhost:8001"  # Admin dev server
+
+  # Test pipeline for experimenting with features
+  - id: "dev-test"
+    version: 1
+    description: "Test pipeline for feature experimentation"
+    agentId: "*"
+    protocol: "http"
+    match:
+      headers:
+        host: ["test.localhost"]
+      listener_port: 8443
+    nodes:
+      # Echo service for testing
+      - id: "echo-response"
+        type: "transform.response"
+        config:
+          status: 200
+          headers:
+            "content-type": "application/json"
+          body: |
+            {
+              "method": "${request.method}",
+              "path": "${request.path}",
+              "headers": ${request.headers},
+              "tls": {
+                "version": "${request.tls.version}",
+                "cipher_suite": "${request.tls.cipher_suite}",
+                "server_name": "${request.tls.server_name}"
+              },
+              "timestamp": "${now}"
+            }
+
+logging:
+  level: "debug"  # Verbose logging for development
+  format: "text"  # Human-readable format
+
+# Development-specific settings
+development:
+  # Auto-reload configuration on changes
+  auto_reload: true
+
+  # Enable debug endpoints
+  debug_endpoints: true
+
+  # Relaxed timeouts
+  timeouts:
+    read: "30s"
+    write: "30s"
+    idle: "120s"

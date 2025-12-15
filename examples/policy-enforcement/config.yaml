@@ -1,7 +1,12 @@
 server:
   listenParams:
     - address: ":8091"
-      protocol: "http"
+      protocol: "https"
+      tls:
+        enabled: true
+        cert_file: "../../build/certs/server.crt"
+        key_file: "../../build/certs/server.key"
+        min_version: "1.2"
 
 policyBundles:
   - id: "local-policy"

@@ -5,13 +5,17 @@ package handlers
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/polisai/polis-oss/pkg/config"
 	"github.com/polisai/polis-oss/pkg/domain"
 	"github.com/polisai/polis-oss/pkg/engine/runtime"
 )
@@ -20,8 +24,10 @@ import (
 // This handler builds the egress request and stores it in the pipeline context
 // for the DAGHandler to execute after pipeline completion.
 // Client Authorization headers are forwarded directly to upstream.
+// Supports upstream TLS configuration for secure connections.
 type EgressHTTPHandler struct {
-	logger *slog.Logger
+	logger     *slog.Logger
+	httpClient *http.Client
 }
 
 type timeoutCandidate struct {
@@ -36,7 +42,8 @@ func NewEgressHTTPHandler(logger *slog.Logger) *EgressHTTPHandler {
 	}
 
 	return &EgressHTTPHandler{
-		logger: logger,
+		logger:     logger,
+		httpClient: &http.Client{Transport: http.DefaultTransport},
 	}
 }
 
@@ -94,8 +101,17 @@ func (h *EgressHTTPHandler) Execute(_ context.Context, node *domain.PipelineNode
 
 	pipelineCtx.Variables["egress.target_url"] = targetURL.String()
 	pipelineCtx.Variables["egress.headers"] = egressHeaders
-
 	pipelineCtx.Variables["egress.method"] = pipelineCtx.Request.Method
+
+	// Configure upstream TLS if needed
+	if err := h.configureUpstreamTLS(node, pipelineCtx, targetURL); err != nil {
+		h.logger.Error("egress handler: failed to configure upstream TLS",
+			"node_id", node.ID,
+			"agent_id", pipelineCtx.Request.AgentID,
+			"error", err,
+		)
+		return runtime.NodeResult{Outcome: runtime.OutcomeFailure}, fmt.Errorf("egress: upstream TLS configuration failed: %w", err)
+	}
 
 	h.logger.Info("egress handler: prepared egress request",
 		"node_id", node.ID,
@@ -608,6 +624,227 @@ func getUpstreamMode(config map[string]interface{}) string {
 		return "custom_header"
 	}
 	return "static"
+}
+
+// configureUpstreamTLS configures TLS settings for upstream connections based on node configuration
+func (h *EgressHTTPHandler) configureUpstreamTLS(node *domain.PipelineNode, pipelineCtx *domain.PipelineContext, targetURL *url.URL) error {
+	if targetURL.Scheme != "https" {
+		// No TLS configuration needed for HTTP upstream
+		return nil
+	}
+
+	// Extract upstream TLS configuration from node config
+	upstreamTLSConfig, err := h.extractUpstreamTLSConfig(node.Config)
+	if err != nil {
+		return fmt.Errorf("invalid upstream TLS configuration: %w", err)
+	}
+
+	if upstreamTLSConfig == nil {
+		// Use default TLS configuration for HTTPS
+		return nil
+	}
+
+	// Build TLS configuration
+	tlsConfig, err := h.buildUpstreamTLSConfig(upstreamTLSConfig, targetURL)
+	if err != nil {
+		return fmt.Errorf("failed to build upstream TLS config: %w", err)
+	}
+
+	// Create custom transport with TLS configuration
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+
+	// Store the configured transport in pipeline context for use by DAGHandler
+	pipelineCtx.Variables["egress.tls_transport"] = transport
+
+	h.logger.Debug("egress handler: configured upstream TLS",
+		"node_id", node.ID,
+		"server_name", upstreamTLSConfig.ServerName,
+		"insecure_skip_verify", upstreamTLSConfig.InsecureSkipVerify,
+		"min_version", upstreamTLSConfig.MinVersion,
+	)
+
+	return nil
+}
+
+// extractUpstreamTLSConfig extracts upstream TLS configuration from node config
+func (h *EgressHTTPHandler) extractUpstreamTLSConfig(nodeConfig map[string]interface{}) (*config.UpstreamTLSConfig, error) {
+	// Check for upstream_tls configuration
+	upstreamTLSRaw, ok := nodeConfig["upstream_tls"]
+	if !ok {
+		return nil, nil
+	}
+
+	upstreamTLSMap, ok := upstreamTLSRaw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("upstream_tls must be an object")
+	}
+
+	// Parse the configuration
+	upstreamTLS := &config.UpstreamTLSConfig{}
+
+	if enabled, ok := upstreamTLSMap["enabled"].(bool); ok {
+		upstreamTLS.Enabled = enabled
+	}
+
+	if !upstreamTLS.Enabled {
+		return nil, nil
+	}
+
+	if serverName, ok := upstreamTLSMap["server_name"].(string); ok {
+		upstreamTLS.ServerName = strings.TrimSpace(serverName)
+	}
+
+	if insecureSkipVerify, ok := upstreamTLSMap["insecure_skip_verify"].(bool); ok {
+		upstreamTLS.InsecureSkipVerify = insecureSkipVerify
+	}
+
+	if caFile, ok := upstreamTLSMap["ca_file"].(string); ok {
+		upstreamTLS.CAFile = strings.TrimSpace(caFile)
+	}
+
+	if certFile, ok := upstreamTLSMap["cert_file"].(string); ok {
+		upstreamTLS.CertFile = strings.TrimSpace(certFile)
+	}
+
+	if keyFile, ok := upstreamTLSMap["key_file"].(string); ok {
+		upstreamTLS.KeyFile = strings.TrimSpace(keyFile)
+	}
+
+	if minVersion, ok := upstreamTLSMap["min_version"].(string); ok {
+		upstreamTLS.MinVersion = strings.TrimSpace(minVersion)
+	}
+
+	if cipherSuites, ok := upstreamTLSMap["cipher_suites"].([]interface{}); ok {
+		for _, suite := range cipherSuites {
+			if suiteStr, ok := suite.(string); ok {
+				upstreamTLS.CipherSuites = append(upstreamTLS.CipherSuites, strings.TrimSpace(suiteStr))
+			}
+		}
+	}
+
+	// Validate the configuration
+	if err := upstreamTLS.Validate(); err != nil {
+		return nil, err
+	}
+
+	return upstreamTLS, nil
+}
+
+// buildUpstreamTLSConfig builds a tls.Config from UpstreamTLSConfig
+func (h *EgressHTTPHandler) buildUpstreamTLSConfig(upstreamTLS *config.UpstreamTLSConfig, targetURL *url.URL) (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: upstreamTLS.InsecureSkipVerify,
+	}
+
+	// Set server name for SNI
+	if upstreamTLS.ServerName != "" {
+		tlsConfig.ServerName = upstreamTLS.ServerName
+	} else {
+		// Use hostname from target URL
+		tlsConfig.ServerName = targetURL.Hostname()
+	}
+
+	// Configure minimum TLS version
+	if upstreamTLS.MinVersion != "" {
+		minVersion, err := h.parseTLSVersion(upstreamTLS.MinVersion)
+		if err != nil {
+			return nil, fmt.Errorf("invalid min_version: %w", err)
+		}
+		tlsConfig.MinVersion = minVersion
+	}
+
+	// Configure cipher suites
+	if len(upstreamTLS.CipherSuites) > 0 {
+		cipherSuites, err := h.parseCipherSuites(upstreamTLS.CipherSuites)
+		if err != nil {
+			return nil, fmt.Errorf("invalid cipher_suites: %w", err)
+		}
+		tlsConfig.CipherSuites = cipherSuites
+	}
+
+	// Configure custom CA bundle
+	if upstreamTLS.CAFile != "" {
+		caCert, err := os.ReadFile(upstreamTLS.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA file %q: %w", upstreamTLS.CAFile, err)
+		}
+
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate from %q", upstreamTLS.CAFile)
+		}
+		tlsConfig.RootCAs = caCertPool
+	}
+
+	// Configure client certificate
+	if upstreamTLS.CertFile != "" && upstreamTLS.KeyFile != "" {
+		clientCert, err := tls.LoadX509KeyPair(upstreamTLS.CertFile, upstreamTLS.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{clientCert}
+	}
+
+	return tlsConfig, nil
+}
+
+// parseTLSVersion converts string TLS version to uint16
+func (h *EgressHTTPHandler) parseTLSVersion(version string) (uint16, error) {
+	switch strings.TrimSpace(version) {
+	case "1.0":
+		return tls.VersionTLS10, nil
+	case "1.1":
+		return tls.VersionTLS11, nil
+	case "1.2":
+		return tls.VersionTLS12, nil
+	case "1.3":
+		return tls.VersionTLS13, nil
+	default:
+		return 0, fmt.Errorf("unsupported TLS version: %s", version)
+	}
+}
+
+// parseCipherSuites converts string cipher suite names to uint16 values
+func (h *EgressHTTPHandler) parseCipherSuites(suiteNames []string) ([]uint16, error) {
+	var suites []uint16
+
+	// Map of cipher suite names to their uint16 values
+	cipherSuiteMap := map[string]uint16{
+		"TLS_RSA_WITH_RC4_128_SHA":                      tls.TLS_RSA_WITH_RC4_128_SHA,
+		"TLS_RSA_WITH_3DES_EDE_CBC_SHA":                 tls.TLS_RSA_WITH_3DES_EDE_CBC_SHA,
+		"TLS_RSA_WITH_AES_128_CBC_SHA":                  tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+		"TLS_RSA_WITH_AES_256_CBC_SHA":                  tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+		"TLS_RSA_WITH_AES_128_CBC_SHA256":               tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
+		"TLS_RSA_WITH_AES_128_GCM_SHA256":               tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+		"TLS_RSA_WITH_AES_256_GCM_SHA384":               tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+		"TLS_ECDHE_ECDSA_WITH_RC4_128_SHA":              tls.TLS_ECDHE_ECDSA_WITH_RC4_128_SHA,
+		"TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA":          tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+		"TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA":          tls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+		"TLS_ECDHE_RSA_WITH_RC4_128_SHA":                tls.TLS_ECDHE_RSA_WITH_RC4_128_SHA,
+		"TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA":           tls.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
+		"TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA":            tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+		"TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA":            tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+		"TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256":       tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+		"TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256":         tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+		"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256":         tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256":       tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384":         tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384":       tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256":   tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+		"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256": tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+	}
+
+	for _, suiteName := range suiteNames {
+		suite, ok := cipherSuiteMap[strings.TrimSpace(suiteName)]
+		if !ok {
+			return nil, fmt.Errorf("unsupported cipher suite: %s", suiteName)
+		}
+		suites = append(suites, suite)
+	}
+
+	return suites, nil
 }
 
 // extractProxyTarget extracts the target URL from the incoming request using standard proxy semantics.

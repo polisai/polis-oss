@@ -1,0 +1,57 @@
+# Multi-Listener TLS Configuration Example
+# This configuration demonstrates how to set up multiple listeners
+# with different protocols and TLS configurations
+
+server:
+  admin_address: ":19090"
+  data_address: ":8090"  # Legacy address - will be ignored when listen_params is used
+
+  # Multiple listener configuration
+  listen_params:
+    # HTTP listener on port 8080
+    - address: ":8080"
+      protocol: "http"
+
+    # HTTPS listener on port 8443 with specific TLS configuration
+    - address: ":8443"
+      protocol: "https"
+      tls:
+        enabled: true
+        cert_file: "certs/server.crt"
+        key_file: "certs/server.key"
+        min_version: "1.2"
+        cipher_suites:
+          - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+          - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+        client_auth:
+          required: false
+
+    # Additional HTTPS listener on port 9443 with different TLS settings
+    - address: ":9443"
+      protocol: "https"
+      tls:
+        enabled: true
+        cert_file: "certs/api-server.crt"
+        key_file: "certs/api-server.key"
+        min_version: "1.3"
+        sni:
+          "api.example.com":
+            cert_file: "certs/api-example-com.crt"
+            key_file: "certs/api-example-com.key"
+          "secure.example.com":
+            cert_file: "certs/secure-example-com.crt"
+            key_file: "certs/secure-example-com.key"
+
+telemetry:
+  otlp_endpoint: "http://localhost:4317"
+  insecure: true
+
+control_plane:
+  address: "localhost:9090"
+  mtls_enabled: false
+
+pipeline:
+  file: "pipeline.yaml"
+
+logging:
+  level: "info"
