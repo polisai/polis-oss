@@ -188,7 +188,13 @@ func runBridge(cmd *cobra.Command, args []string) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Handle SIGHUP for config reload (placeholder for future implementation)
+	// Set up config reloader if config file is specified
+	var configReloader *bridge.ConfigReloader
+	if cliConfig.Config != "" {
+		configReloader = bridge.NewConfigReloader(b, cliConfig.Config, logger)
+	}
+
+	// Handle SIGHUP for config reload
 	sighupChan := make(chan os.Signal, 1)
 	signal.Notify(sighupChan, syscall.SIGHUP)
 
@@ -200,8 +206,16 @@ func runBridge(cmd *cobra.Command, args []string) error {
 				cancel()
 				return
 			case <-sighupChan:
-				logger.Info("Received SIGHUP, config reload not yet implemented")
-				// TODO: Implement config hot reload in task 14
+				logger.Info("Received SIGHUP, triggering configuration reload")
+				if configReloader != nil && cliConfig.Config != "" {
+					if err := configReloader.ReloadConfig(cliConfig.Config); err != nil {
+						logger.Error("Configuration reload failed", "error", err)
+					} else {
+						logger.Info("Configuration reloaded successfully")
+					}
+				} else {
+					logger.Warn("No configuration file specified, cannot reload")
+				}
 			case <-ctx.Done():
 				return
 			}

@@ -456,17 +456,15 @@ func TestProcessManagerEnvVars(t *testing.T) {
 
 // TestProcessManagerGracefulShutdown tests graceful shutdown with SIGTERM
 func TestProcessManagerGracefulShutdown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping graceful shutdown test on Windows due to SIGTERM not being supported")
+	}
+	
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	pm := NewProcessManager(logger)
 	
 	// Create a long-running process
-	var command []string
-	if runtime.GOOS == "windows" {
-		// On Windows, use PowerShell Start-Sleep
-		command = []string{"powershell", "-Command", "Start-Sleep -Seconds 30"}
-	} else {
-		command = []string{"sleep", "30"}
-	}
+	command := []string{"sleep", "30"}
 	
 	ctx := context.Background()
 	err := pm.Start(ctx, command, "", nil)
