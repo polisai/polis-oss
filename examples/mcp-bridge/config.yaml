@@ -1,0 +1,51 @@
+# MCP Bridge Configuration Example
+# This configuration demonstrates how to run a governed MCP tool through Polis
+
+# Bridge server settings
+listen_addr: ":8090"
+
+# Command to execute - the MCP tool to govern
+# This example uses the filesystem MCP server from Anthropic
+command:
+  - npx
+  - -y
+  - "@modelcontextprotocol/server-filesystem"
+  - "/tmp/sandbox"
+
+# Working directory for the child process
+work_dir: ""
+
+# Environment variables for the child process
+env:
+  - "NODE_ENV=production"
+
+# How long to wait for graceful shutdown (default: 5s)
+shutdown_timeout: 5s
+
+# Event buffer size for reconnection support
+buffer_size: 1000
+
+# Session management configuration
+session:
+  # Number of events to buffer per session for reconnection
+  buffer_size: 1000
+  # How long to keep events in the buffer
+  buffer_duration: 60s
+  # How long to keep inactive sessions before cleanup
+  session_timeout: 300s
+
+# Gateway configuration for connecting to Polis
+# Enable this to route traffic through Polis for policy enforcement
+gateway:
+  enabled: true
+  url: "http://localhost:8085"
+  agent_id: "bridge-001"
+
+# Metrics and observability configuration
+metrics:
+  enabled: true
+  path: "/metrics"
+  tracing:
+    enabled: false
+    endpoint: "http://localhost:4317"
+    service_name: "polis-bridge"

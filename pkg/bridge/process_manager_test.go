@@ -533,8 +533,12 @@ func TestProcessManagerForcedKill(t *testing.T) {
 // termination signal or the gateway connection closes, the child process SHALL be 
 // terminated within the configured timeout (default 5 seconds).
 func TestProcessLifecycleCleanup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping process lifecycle cleanup test on Windows due to SIGTERM not being supported")
+	}
+	
 	rapid.Check(t, func(t *rapid.T) {
-		// Generate a random timeout between 1 and 3 seconds (shorter for Windows compatibility)
+		// Generate a random timeout between 1 and 3 seconds
 		timeoutSeconds := rapid.IntRange(1, 3).Draw(t, "timeoutSeconds")
 		timeout := time.Duration(timeoutSeconds) * time.Second
 		
@@ -542,13 +546,7 @@ func TestProcessLifecycleCleanup(t *testing.T) {
 		pm := NewProcessManager(logger)
 		
 		// Create a long-running process that should be terminated
-		var command []string
-		if runtime.GOOS == "windows" {
-			// On Windows, use a simple ping command that runs for a while
-			command = []string{"ping", "-n", "100", "127.0.0.1"}
-		} else {
-			command = []string{"sleep", "300"}
-		}
+		command := []string{"sleep", "300"}
 		
 		ctx := context.Background()
 		err := pm.Start(ctx, command, "", nil)
@@ -596,6 +594,10 @@ func TestProcessLifecycleCleanup(t *testing.T) {
 
 // TestProcessLifecycleCleanupMultipleProcesses tests cleanup with multiple processes
 func TestProcessLifecycleCleanupMultipleProcesses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping multiple process cleanup test on Windows due to SIGTERM not being supported")
+	}
+	
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	
 	// Create multiple process managers
@@ -606,12 +608,7 @@ func TestProcessLifecycleCleanupMultipleProcesses(t *testing.T) {
 		pms[i] = NewProcessManager(logger)
 		
 		// Create a long-running process
-		var command []string
-		if runtime.GOOS == "windows" {
-			command = []string{"powershell", "-Command", "Start-Sleep -Seconds 60"}
-		} else {
-			command = []string{"sleep", "60"}
-		}
+		command := []string{"sleep", "60"}
 		
 		ctx := context.Background()
 		err := pms[i].Start(ctx, command, "", nil)

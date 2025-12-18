@@ -11,6 +11,10 @@ The OSS version provides the foundational engine for building secure AI gateways
 * **Protocol-Aware Proxying**: Native support for HTTP 1.1 and HTTP/2 traffic routing.
 * **Pipeline Architecture**: Define request processing flows as Directed Acyclic Graphs (DAGs), allowing for complex logic like "Auth -> WAF -> Policy -> Egress".
 * **Policy as Code**: Integrated **Open Policy Agent (OPA)** engine allows you to write fine-grained authorization and governance logic in Rego.
+* **MCP Bridge**: Transport bridge for governing CLI-based MCP tools (npx, docker) without code changes.
+  * Bidirectional security inspection of client→server and server→client traffic.
+  * Session management with reconnection support.
+  * Elicitation policy enforcement to prevent prompt injection attacks.
 * **WAF Node**: Built-in Web Application Firewall (WAF) node for pattern-based request inspection.
   * Protect against prompt injection and other attacks using regex rules.
   * Supports file-backed buffering for large request bodies.
@@ -49,7 +53,7 @@ graph TD
 
 ### Installation
 
-Clone the repository and build the binary:
+Clone the repository and build the binaries:
 
 ```bash
 # Clone the repo
@@ -61,6 +65,7 @@ pwsh -File build.ps1 build
 
 # OR Build using Go directly
 go build -o polis.exe ./cmd/polis-core
+go build -o polis-bridge.exe ./cmd/polis-bridge
 ```
 
 ### Running the Proxy
@@ -77,6 +82,35 @@ Run the binary with your configuration file:
 * `--listen`: Address to listen on (default: `:8090`).
 * `--log-level`: Log level (`debug`, `info`, `warn`, `error`).
 * `--pretty`: Enable pretty console logging (default: `false`).
+
+### Running the MCP Bridge
+
+The MCP Bridge enables governance of CLI-based MCP tools:
+
+```bash
+# Basic usage - govern a filesystem MCP tool
+./polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox
+
+# With configuration file
+./polis-bridge.exe --config examples/mcp-bridge/config.yaml
+```
+
+**Bridge Command Line Flags:**
+
+* `--port, -p`: Port to listen on (default: `8090`).
+* `--config, -c`: Path to configuration file (YAML).
+* `--log-level, -l`: Log level (`debug`, `info`, `warn`, `error`).
+
+**Bridge Endpoints:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/sse` | GET | SSE stream for server→client messages |
+| `/message` | POST | JSON-RPC messages from client→server |
+| `/health` | GET | Health check endpoint |
+| `/metrics` | GET | Prometheus metrics |
+
+See [examples/mcp-bridge/README.md](examples/mcp-bridge/README.md) for detailed documentation.
 
 ## ⚙️ Configuration Guide
 
@@ -174,6 +208,89 @@ nodes:
     config:
       code: 403
       message: "Access Denied"
+```
+
+## 🔌 MCP Bridge Configuration
+
+The MCP Bridge configuration supports the following options:
+
+```yaml
+# Bridge server settings
+listen_addr: ":8090"
+
+# Command to execute - the MCP tool to govern
+command:
+  - npx
+  - -y
+  - "@modelcontextprotocol/server-filesystem"
+  - "/tmp/sandbox"
+
+# Working directory for the child process
+work_dir: ""
+
+# Environment variables for the child process
+env:
+  - "NODE_ENV=production"
+
+# Graceful shutdown timeout
+shutdown_timeout: 5s
+
+# Event buffer size for reconnection support
+buffer_size: 1000
+
+# Session management
+session:
+  buffer_size: 1000      # Events to buffer per session
+  buffer_duration: 60s   # How long to keep buffered events
+  session_timeout: 300s  # Inactive session cleanup
+
+# Gateway integration (optional)
+gateway:
+  enabled: true
+  url: "http://localhost:8085"
+  agent_id: "bridge-001"
+
+# Metrics and observability
+metrics:
+  enabled: true
+  path: "/metrics"
+  tracing:
+    enabled: false
+    endpoint: "http://localhost:4317"
+    service_name: "polis-bridge"
+```
+
+### Elicitation Policy Example
+
+Protect against prompt injection attacks from malicious tools:
+
+```rego
+package mcp.elicitation
+
+import rego.v1
+
+default allow = false
+
+# Trusted tools allowed to make sampling requests
+trusted_tools := {"code-assistant", "filesystem-server"}
+
+# Block prompts containing injection patterns
+blocked_patterns := ["ignore previous", "disregard instructions"]
+
+allow if {
+    input.method == "sampling/createMessage"
+    input.tool_id in trusted_tools
+    not contains_blocked_pattern
+}
+
+contains_blocked_pattern if {
+    some msg in input.params.messages
+    some pattern in blocked_patterns
+    contains(lower(msg.content), pattern)
+}
+
+decision := {"action": "block", "reason": "Blocked"} if { not allow }
+decision := {"action": "allow", "reason": "Allowed"} if { allow }
 ```
 
 ## 🤝 Relation to Polis Enterprise
