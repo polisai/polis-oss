@@ -28,31 +28,32 @@ Set-Content C:\Users\adam\Desktop\mcp-test\secret.txt "CONFIDENTIAL DATA"
 go run ./cmd/polis-bridge --port 8090 -- npx -y @modelcontextprotocol/server-filesystem "C:\Users\adam\Desktop\mcp-test"
 ```
 
-### Step 1.2: Verify Health Endpoint
+### Step 1.2: Verify Health Endpoint (tested)
 Open a new terminal and check if the bridge is alive.
 
 ```powershell
-curl http://localhost:8090/health
+# Option A: PowerShell Native (Recommended)
+Invoke-RestMethod -Uri "http://localhost:8090/health"
+
+# Option B: Curl
+curl.exe http://localhost:8090/health
 ```
-**Expected Output**: `{"status":"healthy","pid":<number>}`
+**Expected Output**: `{"status":"healthy"}` (tested)
 
-### Step 1.3: Verify SSE Handshake
-Check if the SSE endpoint is reachable.
+### Step 1.3: Verify SSE Handshake (tested)
+Check if the SSE endpoint is reachable. **Note**: The bridge requires an `X-Agent-ID` header for security isolation.
 
+**Option A: Curl with Pause (Recommended)** (tested)
 ```powershell
-curl -N http://localhost:8090/sse
+cmd /c "curl.exe -N -H ""X-Agent-ID: test-agent"" http://localhost:8090/sse & pause"
 ```
-*Wait for 2-3 seconds, then `Ctrl+C`.*
+*Wait for 2-3 seconds, then close the window.*
 
-**Expected Output**:
-```http
-event: endpoint
-data: /message
+**Option B: Browser**
+Since browsers don't allow adding headers easily to simple URL navigation, you can use a Browser Extension (like "ModHeader") to add `X-Agent-ID: test-agent` before visiting the URL. Or expect `missing X-Agent-ID header` if no header is present.
 
-id: 0
-event: connection_ready
-data: ...
-```
+**Expected Output**: (tested)
+Identified by continuous "loading" state in browser or stream data in curl.
 
 ---
 
@@ -68,9 +69,9 @@ npx @modelcontextprotocol/inspector http://localhost:8090/sse
 ```
 *Note: If the inspector command doesn't support the URL argument directly in your version, simply run `npx @modelcontextprotocol/inspector`, open the URL it gives you (e.g., `localhost:5173`) in a browser, and manually enter `http://localhost:8090/sse` in the connection bar.*
 
-### Step 2.2: List Tools
+### Step 2.2: List Tools (tested)
 1. In the Inspector UI, click **"Tools"**.
-2. **Expected Result**: You should see `read_file`, `write_file`, `list_directory`, etc.
+2. **Expected Result**: You should see `read_file`, `write_file`, `list_directory`, etc. (tested via bridge proxy logs)
 
 ### Step 2.3: Execute Tool (Read File)
 1. Select `read_file`.
@@ -108,14 +109,14 @@ npx @modelcontextprotocol/inspector http://localhost:8090/sse
 ### Step 4.1: Simulate Agent A
 Start a session for Agent A.
 ```powershell
-curl -N -H "X-Agent-ID: agent-a" http://localhost:8090/sse
+curl.exe -N -H "X-Agent-ID: agent-a" http://localhost:8090/sse
 ```
 *Note the `?session_id=...` if returned, or just keep the connection open.*
 
 ### Step 4.2: Simulate Agent B
 In a separate terminal, start a session for Agent B.
 ```powershell
-curl -N -H "X-Agent-ID: agent-b" http://localhost:8090/sse
+curl.exe -N -H "X-Agent-ID: agent-b" http://localhost:8090/sse
 ```
 
 ### Step 4.3: Verify Isolation
@@ -178,7 +179,7 @@ go run ./cmd/polis-bridge -- python malicious_tool.py
 ```
 
 ### Step 5.3: Connect and Observe Blocking
-1. Connect via Curl: `curl http://localhost:8090/sse`
+1. Connect via Curl: `curl.exe -H "X-Agent-ID: test-agent" http://localhost:8090/sse`
 2. **Expected Outcome**:
     - You receive the handshake events.
     - **CRITICAL**: You do **NOT** receive the `sampling/createMessage` event in the curl output.

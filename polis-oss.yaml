@@ -1,0 +1,6 @@
+listenAddr: ":8090"
+# Relaxed mode for OSS/Local usability
+auth:
+  enforce_agent_id: false
+  default_agent_id: "default-oss"
+log_level: "debug"

@@ -21,6 +21,7 @@ type Bridge struct {
 	process        ProcessManager
 	sessions       SessionManager
 	inspector      StreamInspector
+	authMiddleware *AgentIDMiddleware // Added field
 	httpServer     *http.Server
 	logger         *slog.Logger
 	structuredLog  *StructuredLogger
@@ -52,6 +53,9 @@ func NewBridge(config *BridgeConfig, logger *slog.Logger) *Bridge {
 		stopCh:     make(chan struct{}),
 	}
 
+	// Initialize Auth Middleware
+	bridge.authMiddleware = NewAgentIDMiddleware(config.Auth, logger)
+
 	// Initialize structured logging
 	bridge.structuredLog = NewStructuredLogger(logger)
 
@@ -78,7 +82,7 @@ func (b *Bridge) SetProcessManager(pm ProcessManager) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.process = pm
-	
+
 	// Set metrics and tracing on process manager if available
 	if impl, ok := pm.(*DefaultProcessManager); ok {
 		if b.metrics != nil {
@@ -102,7 +106,7 @@ func (b *Bridge) SetStreamInspector(si StreamInspector) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.inspector = si
-	
+
 	// Set metrics on stream inspector if available
 	if impl, ok := si.(*StreamInspectorImpl); ok && b.metrics != nil {
 		impl.SetMetrics(b.metrics)
@@ -268,32 +272,35 @@ func (b *Bridge) startChildProcess(ctx context.Context) error {
 
 // setupRoutes configures HTTP routes for the bridge
 func (b *Bridge) setupRoutes(mux *http.ServeMux) {
-	// Wrap handlers with middleware (metrics and tracing)
-	var wrapHandler func(http.HandlerFunc) http.Handler
-	wrapHandler = func(handler http.HandlerFunc) http.Handler {
+	// Base metrics/tracing wrapper
+	wrapBase := func(handler http.HandlerFunc) http.Handler {
 		h := http.Handler(handler)
-		
-		// Add metrics middleware if enabled
 		if b.metrics != nil {
 			h = b.metrics.MetricsMiddleware(h)
 		}
-		
-		// Add tracing middleware if enabled
 		if b.tracing != nil {
 			h = b.tracing.HTTPMiddleware(h)
 		}
-		
+		return h
+	}
+
+	// Wrapper with Auth
+	wrapWithAuth := func(handler http.HandlerFunc) http.Handler {
+		h := wrapBase(handler)
+		if b.authMiddleware != nil {
+			h = b.authMiddleware.Wrap(h)
+		}
 		return h
 	}
 
 	// Health check endpoint - no auth required
-	mux.Handle("/health", wrapHandler(b.handleHealth))
+	mux.Handle("/health", wrapBase(b.handleHealth))
 
-	// SSE endpoint for server-to-client messages
-	mux.Handle("/sse", wrapHandler(b.handleSSE))
+	// SSE endpoint for server-to-client messages (Auth required)
+	mux.Handle("/sse", wrapWithAuth(b.handleSSE))
 
-	// Message endpoint for client-to-server JSON-RPC
-	mux.Handle("/message", wrapHandler(b.handleMessage))
+	// Message endpoint for client-to-server JSON-RPC (Auth required)
+	mux.Handle("/message", wrapWithAuth(b.handleMessage))
 
 	// Metrics endpoint if enabled
 	if b.metrics != nil && b.config.Metrics != nil {
@@ -325,14 +332,11 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate agent ID
-	agentID, err := ValidateAgentID(r)
-	if err != nil {
-		if mtErr, ok := err.(*MultiTenantError); ok {
-			http.Error(w, mtErr.Message, mtErr.Code)
-		} else {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-		}
+	// Extract agent ID from context (populated by AgentIDMiddleware)
+	agentID, ok := GetAgentIDFromContext(r.Context())
+	if !ok {
+		// This should not happen if middleware is configured, but handle safely
+		http.Error(w, "Unauthorized: agent ID not found in context", http.StatusUnauthorized)
 		return
 	}
 
@@ -342,6 +346,7 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	var session *Session
 	var fromSequence uint64
+	var err error
 
 	if sessionID != "" && lastEventID != "" {
 		// Attempt to resume existing session
@@ -357,7 +362,7 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 					b.metrics.RecordSessionReconnection("error")
 				}
 			}
-			
+
 			if IsSessionNotFound(err) {
 				http.Error(w, "Session not found", http.StatusNotFound)
 			} else if IsAccessDenied(err) {
@@ -367,12 +372,12 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		
+
 		// Record successful reconnection metrics
 		if b.metrics != nil {
 			b.metrics.RecordSessionReconnection("success")
 		}
-		
+
 		b.logger.Info("Session resumed", "session_id", sessionID, "from_sequence", fromSequence)
 	} else {
 		// Create new session
@@ -449,14 +454,11 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate agent ID
-	agentID, err := ValidateAgentID(r)
-	if err != nil {
-		if mtErr, ok := err.(*MultiTenantError); ok {
-			http.Error(w, mtErr.Message, mtErr.Code)
-		} else {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-		}
+	// Extract agent ID from context (populated by AgentIDMiddleware)
+	agentID, ok := GetAgentIDFromContext(r.Context())
+	if !ok {
+		// This should not happen if middleware is configured, but handle safely
+		http.Error(w, "Unauthorized: agent ID not found in context", http.StatusUnauthorized)
 		return
 	}
 
@@ -521,7 +523,7 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if b.metrics != nil {
 		timer = b.metrics.NewMessageTimer("ingress", method)
 	}
-	
+
 	start := time.Now()
 
 	// Write to child process stdin
@@ -539,9 +541,8 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add newline for JSON-RPC over stdio
-	message := append(body, '\n')
-	if err := b.process.Write(message); err != nil {
+	// Forward message
+	if err := b.process.Write(append(body, '\n')); err != nil {
 		duration := time.Since(start)
 		if timer != nil {
 			timer.Error("write_failed")
@@ -586,7 +587,7 @@ func (b *Bridge) readProcessOutput() {
 		var jsonRPC map[string]interface{}
 		eventID := ""
 		method := "unknown"
-		
+
 		if err := json.Unmarshal(data, &jsonRPC); err == nil {
 			if id, ok := jsonRPC["id"]; ok {
 				eventID = fmt.Sprintf("%v", id)
@@ -612,7 +613,7 @@ func (b *Bridge) readProcessOutput() {
 		if b.metrics != nil {
 			timer = b.metrics.NewMessageTimer("egress", method)
 		}
-		
+
 		start := time.Now()
 
 		event := &SSEEvent{
@@ -692,10 +693,10 @@ func (b *Bridge) broadcastEvent(event *SSEEvent) {
 
 // MCPInitializeRequest represents an MCP initialize request
 type MCPInitializeRequest struct {
-	JSONRPC string                 `json:"jsonrpc"`
-	ID      int                    `json:"id"`
-	Method  string                 `json:"method"`
-	Params  MCPInitializeParams    `json:"params"`
+	JSONRPC string              `json:"jsonrpc"`
+	ID      int                 `json:"id"`
+	Method  string              `json:"method"`
+	Params  MCPInitializeParams `json:"params"`
 }
 
 // MCPInitializeParams contains the parameters for initialize request
@@ -745,14 +746,14 @@ func (b *Bridge) performMCPHandshake(ctx context.Context) error {
 
 	// Channel to receive initialization response
 	initResponseCh := make(chan error, 1)
-	
+
 	// Start a goroutine to read the initialize response
 	go func() {
 		// Read response from process - we expect a JSON-RPC response with id=1
 		// followed by an initialized notification
 		buffer := make([]byte, 4096)
 		responseReceived := false
-		
+
 		for i := 0; i < 10; i++ { // Try up to 10 reads
 			select {
 			case <-ctx.Done():
@@ -760,37 +761,37 @@ func (b *Bridge) performMCPHandshake(ctx context.Context) error {
 				return
 			default:
 			}
-			
+
 			// Give process time to respond
 			time.Sleep(100 * time.Millisecond)
-			
+
 			// Check if we've received a response by attempting to parse buffered data
 			// In a real implementation, we'd have a proper message framing mechanism
 			if !responseReceived {
 				responseReceived = true
-				
+
 				// Send initialized notification to complete handshake
 				initializedNotif := MCPInitializedNotification{
 					JSONRPC: "2.0",
 					Method:  "notifications/initialized",
 				}
-				
+
 				notifData, err := json.Marshal(initializedNotif)
 				if err != nil {
 					initResponseCh <- fmt.Errorf("failed to marshal initialized notification: %w", err)
 					return
 				}
-				
+
 				if err := b.process.Write(append(notifData, '\n')); err != nil {
 					initResponseCh <- fmt.Errorf("failed to send initialized notification: %w", err)
 					return
 				}
-				
+
 				initResponseCh <- nil
 				return
 			}
 		}
-		
+
 		_ = buffer // Suppress unused variable warning
 		initResponseCh <- fmt.Errorf("no response received from process")
 	}()

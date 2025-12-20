@@ -25,10 +25,12 @@ const (
 
 // CLIConfig holds the parsed CLI configuration
 type CLIConfig struct {
-	Port     string
-	Config   string
-	LogLevel string
-	Command  []string
+	Port           string
+	Config         string
+	LogLevel       string
+	EnforceAgentID bool
+	DefaultAgentID string
+	Command        []string
 }
 
 func main() {
@@ -57,36 +59,31 @@ Example:
 	rootCmd.Flags().StringP("port", "p", defaultPort, "Port to listen on")
 	rootCmd.Flags().StringP("config", "c", "", "Path to configuration file (YAML)")
 	rootCmd.Flags().StringP("log-level", "l", defaultLogLevel, "Log level (debug, info, warn, error)")
+	rootCmd.Flags().Bool("enforce-agent-id", false, "Strictly require X-Agent-ID header or agent_id query param")
+	rootCmd.Flags().String("default-agent-id", "default", "Default agent ID to use in relaxed mode")
 
 	return rootCmd
 }
 
 // parseCLIConfig parses command line arguments and returns a CLIConfig
 func parseCLIConfig(cmd *cobra.Command, args []string) (*CLIConfig, error) {
-	port, err := cmd.Flags().GetString("port")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get port flag: %w", err)
-	}
-
-	configPath, err := cmd.Flags().GetString("config")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config flag: %w", err)
-	}
-
-	logLevel, err := cmd.Flags().GetString("log-level")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get log-level flag: %w", err)
-	}
+	port, _ := cmd.Flags().GetString("port")
+	configPath, _ := cmd.Flags().GetString("config")
+	logLevel, _ := cmd.Flags().GetString("log-level")
+	enforce, _ := cmd.Flags().GetBool("enforce-agent-id")
+	defaultID, _ := cmd.Flags().GetString("default-agent-id")
 
 	// The command to execute comes after the -- separator
 	// cobra passes these as args
 	command := args
 
 	return &CLIConfig{
-		Port:     port,
-		Config:   configPath,
-		LogLevel: logLevel,
-		Command:  command,
+		Port:           port,
+		Config:         configPath,
+		LogLevel:       logLevel,
+		EnforceAgentID: enforce,
+		DefaultAgentID: defaultID,
+		Command:        command,
 	}, nil
 }
 
@@ -133,6 +130,19 @@ func buildBridgeConfig(cliConfig *CLIConfig) (*bridge.BridgeConfig, error) {
 	// CLI flags override config file values
 	if cliConfig.Port != "" {
 		config.ListenAddr = ":" + cliConfig.Port
+	}
+
+	// Auth overrides
+	if config.Auth == nil {
+		config.Auth = &bridge.AuthConfig{}
+	}
+
+	// Only override if flag was explicitly set or if using defaults
+	if cliConfig.EnforceAgentID {
+		config.Auth.EnforceAgentID = true
+	}
+	if cliConfig.DefaultAgentID != "default" || config.Auth.DefaultAgentID == "" {
+		config.Auth.DefaultAgentID = cliConfig.DefaultAgentID
 	}
 
 	// Command from CLI takes precedence
