@@ -1,6 +1,9 @@
 package bridge
 
 import (
+	"bufio"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,43 +15,43 @@ import (
 // Metrics holds all Prometheus metrics for the bridge
 type Metrics struct {
 	// Message metrics
-	messagesTotal       *prometheus.CounterVec
-	messageLatency      *prometheus.HistogramVec
-	messageErrors       *prometheus.CounterVec
-	
+	messagesTotal  *prometheus.CounterVec
+	messageLatency *prometheus.HistogramVec
+	messageErrors  *prometheus.CounterVec
+
 	// Session metrics
-	sessionsActive      prometheus.Gauge
-	sessionsTotal       *prometheus.CounterVec
-	sessionDuration     *prometheus.HistogramVec
-	
+	sessionsActive  prometheus.Gauge
+	sessionsTotal   *prometheus.CounterVec
+	sessionDuration *prometheus.HistogramVec
+
 	// Buffer metrics
-	bufferSize          *prometheus.GaugeVec
-	bufferEvictions     *prometheus.CounterVec
-	
+	bufferSize      *prometheus.GaugeVec
+	bufferEvictions *prometheus.CounterVec
+
 	// Process metrics
-	processStatus       *prometheus.GaugeVec
-	processRestarts     prometheus.Counter
-	
+	processStatus   *prometheus.GaugeVec
+	processRestarts prometheus.Counter
+
 	// Stream inspector metrics
 	streamInspectorEvents *prometheus.CounterVec
-	
+
 	// Session reconnection metrics
 	sessionReconnections *prometheus.CounterVec
-	
+
 	// Configuration reload metrics
 	configReloads *prometheus.CounterVec
-	
+
 	// HTTP metrics
 	httpRequestsTotal   *prometheus.CounterVec
 	httpRequestDuration *prometheus.HistogramVec
-	
+
 	registry *prometheus.Registry
 }
 
 // NewMetrics creates a new metrics instance with all bridge metrics
 func NewMetrics() *Metrics {
 	registry := prometheus.NewRegistry()
-	
+
 	m := &Metrics{
 		messagesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -57,7 +60,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"direction", "status", "method"},
 		),
-		
+
 		messageLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Name:    "bridge_message_duration_seconds",
@@ -66,7 +69,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"direction", "method"},
 		),
-		
+
 		messageErrors: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "bridge_message_errors_total",
@@ -74,14 +77,14 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"direction", "error_type", "method"},
 		),
-		
+
 		sessionsActive: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Name: "bridge_sessions_active",
 				Help: "Number of currently active sessions",
 			},
 		),
-		
+
 		sessionsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "bridge_sessions_total",
@@ -89,7 +92,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"agent_id"},
 		),
-		
+
 		sessionDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Name:    "bridge_session_duration_seconds",
@@ -98,7 +101,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"agent_id"},
 		),
-		
+
 		bufferSize: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "bridge_buffer_size_bytes",
@@ -106,7 +109,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"session_id"},
 		),
-		
+
 		bufferEvictions: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "bridge_buffer_evictions_total",
@@ -114,7 +117,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"session_id", "reason"},
 		),
-		
+
 		processStatus: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "bridge_process_status",
@@ -122,14 +125,14 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"command"},
 		),
-		
+
 		processRestarts: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Name: "bridge_process_restarts_total",
 				Help: "Total number of child process restarts",
 			},
 		),
-		
+
 		httpRequestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "bridge_http_requests_total",
@@ -137,7 +140,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"method", "endpoint", "status_code"},
 		),
-		
+
 		httpRequestDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Name:    "bridge_http_request_duration_seconds",
@@ -146,7 +149,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"method", "endpoint"},
 		),
-		
+
 		streamInspectorEvents: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "bridge_stream_inspector_events_total",
@@ -154,7 +157,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"action", "method"},
 		),
-		
+
 		sessionReconnections: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "bridge_session_reconnections_total",
@@ -162,7 +165,7 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"status"},
 		),
-		
+
 		configReloads: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "bridge_config_reloads_total",
@@ -170,10 +173,10 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"status"},
 		),
-		
+
 		registry: registry,
 	}
-	
+
 	// Register all metrics
 	registry.MustRegister(
 		m.messagesTotal,
@@ -192,7 +195,7 @@ func NewMetrics() *Metrics {
 		m.sessionReconnections,
 		m.configReloads,
 	)
-	
+
 	return m
 }
 
@@ -278,18 +281,18 @@ func (m *Metrics) Registry() *prometheus.Registry {
 func (m *Metrics) MetricsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		
+
 		// Wrap response writer to capture status code
 		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-		
+
 		// Call next handler
 		next.ServeHTTP(wrapped, r)
-		
+
 		// Record metrics
 		duration := time.Since(start)
 		endpoint := getEndpointName(r.URL.Path)
 		statusCode := strconv.Itoa(wrapped.statusCode)
-		
+
 		m.RecordHTTPRequest(r.Method, endpoint, statusCode, duration)
 	})
 }
@@ -303,6 +306,26 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not support http.Hijacker")
+}
+
+func (rw *responseWriter) Push(target string, opts *http.PushOptions) error {
+	if pusher, ok := rw.ResponseWriter.(http.Pusher); ok {
+		return pusher.Push(target, opts)
+	}
+	return http.ErrNotSupported
 }
 
 // getEndpointName extracts a normalized endpoint name from the path

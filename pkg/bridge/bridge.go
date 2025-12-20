@@ -301,12 +301,20 @@ func (b *Bridge) setupRoutes(mux *http.ServeMux) {
 		}
 		// Add CORS support
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			}
+
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Agent-ID, X-Session-ID, Last-Event-ID")
 			w.Header().Set("Access-Control-Expose-Headers", "X-Session-ID, X-Agent-ID")
 
 			if r.Method == http.MethodOptions {
+				b.logger.Debug("Handling CORS preflight", "origin", origin, "headers", r.Header.Get("Access-Control-Request-Headers"))
 				w.WriteHeader(http.StatusOK)
 				return
 			}
@@ -430,7 +438,8 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 	endpointURL := fmt.Sprintf("%s://%s/message?session_id=%s", scheme, r.Host, sessionID)
 	// Fallback for agent ID if needed for multi-tenant isolation
-	if agentID != "" && agentID != "default" {
+	// For relaxed mode/default usage, we omit it to keep the URL simple and avoid parsing issues
+	if agentID != "" && agentID != "default" && b.config.Auth != nil && b.config.Auth.EnforceAgentID {
 		endpointURL += fmt.Sprintf("&agent_id=%s", agentID)
 	}
 
@@ -439,6 +448,7 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 		Data:  []byte(endpointURL),
 	}
 	b.writeSSEEvent(w, endpointEvent)
+	b.logger.Info("Sent endpoint event", "session_id", sessionID, "url", endpointURL)
 
 	// Create event channel for this client
 	eventCh := make(chan *SSEEvent, 100)
@@ -492,6 +502,8 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	b.logger.Debug("Received message request", "url", r.URL.String(), "method", r.Method)
 
 	// Extract agent ID from context (populated by AgentIDMiddleware)
 	agentID, ok := GetAgentIDFromContext(r.Context())
