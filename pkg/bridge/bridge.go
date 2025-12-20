@@ -33,6 +33,7 @@ type Bridge struct {
 	sseClients     map[string]chan *SSEEvent // sessionID -> event channel
 	clientsMu      sync.RWMutex
 	stopCh         chan struct{}
+	stopOnce       sync.Once
 }
 
 // NewBridge creates a new bridge instance with the given configuration
@@ -168,36 +169,44 @@ func (b *Bridge) Start(ctx context.Context) error {
 
 // Stop gracefully stops the bridge server
 func (b *Bridge) Stop(ctx context.Context) error {
-	b.logger.Info("Stopping MCP Bridge")
+	var err error
+	b.stopOnce.Do(func() {
+		b.logger.Info("Stopping MCP Bridge", "already_stopping", false)
 
-	// Signal stop to all goroutines
-	close(b.stopCh)
-
-	// Close all SSE client channels
-	b.clientsMu.Lock()
-	for sessionID, ch := range b.sseClients {
-		close(ch)
-		delete(b.sseClients, sessionID)
-	}
-	b.clientsMu.Unlock()
-
-	// Stop HTTP server
-	if b.httpServer != nil {
-		shutdownCtx, cancel := context.WithTimeout(ctx, b.config.ShutdownTimeout)
-		defer cancel()
-		if err := b.httpServer.Shutdown(shutdownCtx); err != nil {
-			b.logger.Error("HTTP server shutdown error", "error", err)
+		// Signal stop to all goroutines safely
+		select {
+		case <-b.stopCh:
+			// Already closed
+		default:
+			close(b.stopCh)
 		}
-	}
 
-	// Stop child process
-	if b.process != nil && b.process.IsRunning() {
-		if err := b.process.Stop(b.config.ShutdownTimeout); err != nil {
-			b.logger.Error("Failed to stop child process", "error", err)
+		// Close all SSE client channels
+		b.clientsMu.Lock()
+		for sessionID, ch := range b.sseClients {
+			close(ch)
+			delete(b.sseClients, sessionID)
 		}
-	}
+		b.clientsMu.Unlock()
 
-	return nil
+		// Stop child process
+		if b.process != nil {
+			if stopErr := b.process.Stop(b.config.ShutdownTimeout); stopErr != nil {
+				b.logger.Error("Failed to stop child process", "error", stopErr)
+				err = stopErr
+			}
+		}
+
+		// Stop HTTP server
+		if b.httpServer != nil {
+			if stopErr := b.httpServer.Shutdown(ctx); stopErr != nil {
+				b.logger.Error("Failed to shut down HTTP server", "error", stopErr)
+				err = stopErr
+			}
+		}
+	})
+
+	return err
 }
 
 // Health returns the current health status of the bridge
@@ -284,13 +293,25 @@ func (b *Bridge) setupRoutes(mux *http.ServeMux) {
 		return h
 	}
 
-	// Wrapper with Auth
+	// Wrapper with Auth and CORS
 	wrapWithAuth := func(handler http.HandlerFunc) http.Handler {
 		h := wrapBase(handler)
 		if b.authMiddleware != nil {
 			h = b.authMiddleware.Wrap(h)
 		}
-		return h
+		// Add CORS support
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Agent-ID, X-Session-ID, Last-Event-ID")
+			w.Header().Set("Access-Control-Expose-Headers", "X-Session-ID, X-Agent-ID")
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			h.ServeHTTP(w, r)
+		})
 	}
 
 	// Health check endpoint - no auth required
@@ -400,6 +421,24 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}
+
+	// Send endpoint event per MCP SSE spec
+	// The client uses this URI to POST messages to the server
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	endpointURL := fmt.Sprintf("%s://%s/message?session_id=%s", scheme, r.Host, sessionID)
+	// Fallback for agent ID if needed for multi-tenant isolation
+	if agentID != "" && agentID != "default" {
+		endpointURL += fmt.Sprintf("&agent_id=%s", agentID)
+	}
+
+	endpointEvent := &SSEEvent{
+		Event: "endpoint",
+		Data:  []byte(endpointURL),
+	}
+	b.writeSSEEvent(w, endpointEvent)
 
 	// Create event channel for this client
 	eventCh := make(chan *SSEEvent, 100)
