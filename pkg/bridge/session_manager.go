@@ -56,7 +56,6 @@ func generateSessionID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-
 // CreateSession creates a new session for the given agent
 func (sm *DefaultSessionManager) CreateSession(agentID string) (*Session, error) {
 	if agentID == "" {
@@ -131,9 +130,16 @@ func (sm *DefaultSessionManager) ResumeSession(sessionID, agentID, lastEventID s
 	}
 
 	// Parse the last event ID to get the sequence number
+	// Format can be just "sequence" or "sessionID:sequence"
 	var sequence uint64
 	if lastEventID != "" {
-		if _, err := fmt.Sscanf(lastEventID, "%d", &sequence); err != nil {
+		// Try parsing as "sessionID:sequence" first
+		var idStr string
+		if n, _ := fmt.Sscanf(lastEventID, "%s:%d", &idStr, &sequence); n == 2 {
+			// If session ID matches, we use the sequence
+			// If session ID differs, we still use sequence but log a warning?
+			// For now, trusting the sequence if it parses.
+		} else if _, err := fmt.Sscanf(lastEventID, "%d", &sequence); err != nil {
 			return nil, 0, ErrInvalidLastEventID
 		}
 		// We want events AFTER the last acknowledged one
@@ -228,6 +234,27 @@ func (sm *DefaultSessionManager) ListSessions(agentID string) ([]*Session, error
 	return result, nil
 }
 
+// GetDisconnectedSession returns an existing session for the agent that has no connected clients
+func (sm *DefaultSessionManager) GetDisconnectedSession(agentID string) (*Session, error) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	// Find the most recently active session for this agent that has 0 clients
+	var candidate *Session
+	for _, session := range sm.sessions {
+		if session.AgentID == agentID && len(session.Clients) == 0 {
+			if candidate == nil || session.LastActivity.After(candidate.LastActivity) {
+				candidate = session
+			}
+		}
+	}
+
+	if candidate == nil {
+		return nil, &SessionNotFoundError{SessionID: "auto-resume"}
+	}
+
+	return candidate, nil
+}
 
 // AddClient adds a new SSE client to a session
 func (sm *DefaultSessionManager) AddClient(sessionID, agentID string, writer io.Writer, lastEventID string) (*SSEClient, error) {
@@ -308,7 +335,7 @@ func (sm *DefaultSessionManager) BufferEvent(sessionID string, data []byte) (uin
 	sm.mu.Lock()
 	evicted := session.EventBuffer.Add(event)
 	session.LastActivity = time.Now()
-	
+
 	// Update buffer size metrics and record evictions
 	if sm.metrics != nil {
 		sm.metrics.UpdateBufferSize(sessionID, session.EventBuffer.Size())
@@ -316,7 +343,7 @@ func (sm *DefaultSessionManager) BufferEvent(sessionID string, data []byte) (uin
 			sm.metrics.RecordBufferEviction(sessionID, "capacity_exceeded")
 		}
 	}
-	
+
 	sm.mu.Unlock()
 
 	return seq, nil

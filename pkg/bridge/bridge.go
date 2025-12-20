@@ -377,7 +377,7 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 	var fromSequence uint64
 	var err error
 
-	if sessionID != "" && lastEventID != "" {
+	if sessionID != "" {
 		// Attempt to resume existing session
 		session, fromSequence, err = b.sessions.ResumeSession(sessionID, agentID, lastEventID)
 		if err != nil {
@@ -409,14 +409,24 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 		b.logger.Info("Session resumed", "session_id", sessionID, "from_sequence", fromSequence)
 	} else {
-		// Create new session
-		session, err = b.sessions.CreateSession(agentID)
-		if err != nil {
-			http.Error(w, "Failed to create session", http.StatusInternalServerError)
-			return
+		// Try to auto-resume a disconnected session for this agent
+		if session, err = b.sessions.GetDisconnectedSession(agentID); err == nil {
+			sessionID = session.ID
+			// We resume from the end? Or should we replay?
+			// For auto-resume (e.g. browser refresh), we typically just want to re-attach.
+			// Replaying might duplicate events if the client already had them but lost state.
+			// Safe bet: just re-attach and get new events. Client didn't ask for replay (no Last-Event-ID).
+			b.logger.Info("Auto-resumed disconnected session", "session_id", sessionID, "agent_id", agentID)
+		} else {
+			// Create new session
+			session, err = b.sessions.CreateSession(agentID)
+			if err != nil {
+				http.Error(w, "Failed to create session", http.StatusInternalServerError)
+				return
+			}
+			sessionID = session.ID
+			b.logger.Info("New session created", "session_id", sessionID, "agent_id", agentID)
 		}
-		sessionID = session.ID
-		b.logger.Info("New session created", "session_id", sessionID, "agent_id", agentID)
 	}
 
 	// Set SSE headers
@@ -729,7 +739,7 @@ func (b *Bridge) broadcastEvent(event *SSEEvent) {
 		if sm, ok := b.sessions.(*DefaultSessionManager); ok {
 			seq, err := sm.BufferEvent(sessionID, event.Data)
 			if err == nil {
-				event.ID = fmt.Sprintf("%d", seq)
+				event.ID = fmt.Sprintf("%s:%d", sessionID, seq)
 			}
 		}
 

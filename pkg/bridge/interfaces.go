@@ -11,19 +11,19 @@ import (
 type ProcessManager interface {
 	// Start spawns the child process with the given command and arguments
 	Start(ctx context.Context, command []string, workDir string, env []string) error
-	
+
 	// Write sends data to the child process's stdin
 	Write(data []byte) error
-	
+
 	// ReadLoop continuously reads from stdout and calls the handler for each message
 	ReadLoop(handler func([]byte)) error
-	
+
 	// Stop gracefully terminates the child process within the given timeout
 	Stop(timeout time.Duration) error
-	
+
 	// IsRunning returns true if the child process is currently running
 	IsRunning() bool
-	
+
 	// ExitCode returns the exit code of the process (only valid after process exits)
 	ExitCode() int
 }
@@ -32,13 +32,13 @@ type ProcessManager interface {
 type StreamInspector interface {
 	// ParseSSEEvent parses a single SSE event from raw bytes
 	ParseSSEEvent(line []byte) (*SSEEvent, error)
-	
+
 	// ParseSSEStream reads SSE events from a reader and returns a channel
 	ParseSSEStream(r io.Reader) <-chan *SSEEvent
-	
+
 	// Inspect evaluates an SSE event against configured policies
 	Inspect(ctx context.Context, event *SSEEvent, toolID string) (*InspectionResult, error)
-	
+
 	// IsServerRequest determines if the event data contains a server-initiated JSON-RPC request
 	IsServerRequest(data []byte) bool
 }
@@ -47,21 +47,24 @@ type StreamInspector interface {
 type SessionManager interface {
 	// CreateSession creates a new session for the given agent
 	CreateSession(agentID string) (*Session, error)
-	
+
 	// GetSession retrieves an existing session by ID and agent
 	GetSession(sessionID, agentID string) (*Session, error)
-	
+
 	// ResumeSession resumes a session from a specific event ID
 	ResumeSession(sessionID, agentID, lastEventID string) (*Session, uint64, error)
-	
+
 	// CloseSession terminates a session and cleans up resources
 	CloseSession(sessionID string) error
-	
+
 	// Cleanup removes expired sessions
 	Cleanup()
-	
+
 	// ListSessions returns all sessions for the given agent
 	ListSessions(agentID string) ([]*Session, error)
+
+	// GetDisconnectedSession returns an existing session for the agent that has no connected clients
+	GetDisconnectedSession(agentID string) (*Session, error)
 }
 
 // SSEEvent represents a parsed Server-Sent Event
@@ -92,10 +95,10 @@ type Session struct {
 
 // SSEClient represents a connected SSE client
 type SSEClient struct {
-	ID           string
+	ID             string
 	ResponseWriter io.Writer
-	LastEventID  string
-	ConnectedAt  time.Time
+	LastEventID    string
+	ConnectedAt    time.Time
 }
 
 // RingBuffer is a fixed-size circular buffer for event storage
@@ -128,7 +131,7 @@ func NewRingBuffer(capacity int) *RingBuffer {
 func (rb *RingBuffer) Add(event *BufferedEvent) bool {
 	rb.events[rb.tail] = event
 	rb.tail = (rb.tail + 1) % rb.capacity
-	
+
 	evicted := false
 	if rb.size < rb.capacity {
 		rb.size++
@@ -137,14 +140,14 @@ func (rb *RingBuffer) Add(event *BufferedEvent) bool {
 		rb.head = (rb.head + 1) % rb.capacity
 		evicted = true
 	}
-	
+
 	return evicted
 }
 
 // GetFromSequence returns all events starting from the given sequence number
 func (rb *RingBuffer) GetFromSequence(sequence uint64) []*BufferedEvent {
 	var result []*BufferedEvent
-	
+
 	for i := 0; i < rb.size; i++ {
 		idx := (rb.head + i) % rb.capacity
 		event := rb.events[idx]
@@ -152,7 +155,7 @@ func (rb *RingBuffer) GetFromSequence(sequence uint64) []*BufferedEvent {
 			result = append(result, event)
 		}
 	}
-	
+
 	return result
 }
 
