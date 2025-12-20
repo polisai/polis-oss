@@ -14,6 +14,7 @@ import (
 
 	"github.com/polisai/polis-oss/pkg/bridge"
 	"github.com/polisai/polis-oss/pkg/logging"
+	"github.com/polisai/polis-oss/pkg/policy"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -141,7 +142,7 @@ func buildBridgeConfig(cliConfig *CLIConfig) (*bridge.BridgeConfig, error) {
 	if cliConfig.EnforceAgentID {
 		config.Auth.EnforceAgentID = true
 	}
-	if cliConfig.DefaultAgentID != "default" || config.Auth.DefaultAgentID == "" {
+	if cliConfig.DefaultAgentID != "default" {
 		config.Auth.DefaultAgentID = cliConfig.DefaultAgentID
 	}
 
@@ -189,6 +190,38 @@ func runBridge(cmd *cobra.Command, args []string) error {
 
 	// Create bridge instance
 	b := bridge.NewBridge(bridgeConfig, logger)
+
+	// Initialize Policy Engine if configured
+	if bridgeConfig.Policy != nil && bridgeConfig.Policy.Path != "" {
+		logger.Info("Initializing Policy Engine", "path", bridgeConfig.Policy.Path)
+
+		modules, err := loadPolicyModules(bridgeConfig.Policy.Path)
+		if err != nil {
+			logger.Error("Failed to load policy modules", "error", err)
+			return err
+		}
+		logger.Info("Loaded policy modules", "count", len(modules))
+
+		policyOpts := policy.EngineOptions{
+			Entrypoint: bridgeConfig.Policy.Entrypoint,
+			Modules:    modules,
+		}
+
+		policyEngine, err := policy.NewEngine(context.Background(), policyOpts)
+		if err != nil {
+			logger.Error("Failed to create Policy Engine", "error", err)
+			return err
+		}
+
+		inspectorConfig := bridge.DefaultStreamInspectorConfig()
+		if bridgeConfig.Policy.Entrypoint != "" {
+			inspectorConfig.Entrypoint = bridgeConfig.Policy.Entrypoint
+		}
+
+		inspector := bridge.NewStreamInspector(policyEngine, inspectorConfig, logger)
+		b.SetStreamInspector(inspector)
+		logger.Info("Stream Inspector enabled")
+	}
 
 	// Set up context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -256,4 +289,32 @@ func runBridge(cmd *cobra.Command, args []string) error {
 
 	logger.Info("Bridge stopped")
 	return nil
+}
+
+// loadPolicyModules reads all .rego files from the specified directory
+func loadPolicyModules(dirPath string) (map[string]string, error) {
+	files, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read policy directory: %w", err)
+	}
+
+	modules := make(map[string]string)
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".rego") {
+			continue
+		}
+
+		content, err := os.ReadFile(dirPath + "/" + file.Name())
+		if err != nil {
+			return nil, fmt.Errorf("failed to read policy file %s: %w", file.Name(), err)
+		}
+
+		modules[file.Name()] = string(content)
+	}
+
+	if len(modules) == 0 {
+		return nil, fmt.Errorf("no .rego files found in %s", dirPath)
+	}
+
+	return modules, nil
 }

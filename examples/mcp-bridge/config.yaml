@@ -49,3 +49,8 @@ metrics:
     enabled: false
     endpoint: "http://localhost:4317"
     service_name: "polis-bridge"
+
+# Policy configuration
+policy:
+  path: "examples/mcp-bridge/policies"
+  entrypoint: "mcp/elicitation"

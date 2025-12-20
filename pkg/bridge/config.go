@@ -35,6 +35,18 @@ type BridgeConfig struct {
 
 	// Auth configuration
 	Auth *AuthConfig `yaml:"auth,omitempty" json:"auth,omitempty"`
+
+	// Policy configuration
+	Policy *PolicyConfig `yaml:"policy,omitempty" json:"policy,omitempty"`
+}
+
+// PolicyConfig holds policy engine configuration
+type PolicyConfig struct {
+	// Path to the directory containing Rego policy modules
+	Path string `yaml:"path" json:"path"`
+
+	// Entrypoint is the default decision path (e.g., "mcp/elicitation")
+	Entrypoint string `yaml:"entrypoint" json:"entrypoint"`
 }
 
 // AuthConfig holds authentication and security configuration
