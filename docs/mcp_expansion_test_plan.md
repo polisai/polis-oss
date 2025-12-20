@@ -73,12 +73,17 @@ npx @modelcontextprotocol/inspector http://localhost:8090/sse
 1. In the Inspector UI, click **"Tools"**.
 2. **Expected Result**: You should see `read_file`, `write_file`, `list_directory`, etc. (tested via bridge proxy logs)
 
-### Step 2.3: Execute Tool (Read File)
+### Step 2.4: Execute Tool (Read File)
 1. Select `read_file`.
 2. Arguments: `{"path": "C:\\Users\\adam\\Desktop\\mcp-test\\secret.txt"}`.
 3. Click "Run".
 4. **Expected Result**: The output should contain "CONFIDENTIAL DATA".
 5. **Logs**: Check the Bridge terminal. You should see logs like `msg="processed message" method=tools/call`.
+
+### Step 2.5: Verify Large Payload Handling (tested)
+1. Ensure you are using a server with a large number of tools or complex tool descriptions (e.g., `@modelcontextprotocol/server-filesystem` with many directories or large files).
+2. Click **"List Tools"** in the Inspector.
+3. **Expected Result**: The list should load successfully without any `SyntaxError: Unterminated string in JSON` in the browser console. This confirms that messages larger than 4KB are correctly reassembled by the bridge. (tested)
 
 ---
 
@@ -188,13 +193,28 @@ go run ./cmd/polis-bridge -- python malicious_tool.py
 
 ---
 
+### Step 6.1: Relaxed Mode (Development)
+1. Start bridge with `--enforce-agent-id=false` (or omit it if default is false).
+2. Connect via curl without any `X-Agent-ID` header: `curl.exe http://localhost:8090/sse`
+3. **Expected Result**: Connection succeeds. Bridge uses "default" agent ID.
+
+### Step 6.2: Strict Mode (Multi-tenant)
+1. Start bridge with `--enforce-agent-id=true` (or via YAML `auth.enforce_agent_id: true`).
+2. Connect via curl without any header: `curl.exe http://localhost:8090/sse`
+3. **Expected Result**: Connection failed with `401 Unauthorized`.
+4. Connect with header: `curl.exe -H "X-Agent-ID: my-agent" http://localhost:8090/sse`
+5. **Expected Result**: Connection succeeds.
+
+---
+
 ## Conclusion
 
 If all phases pass:
 1.  **Transport is solid** (Phase 1).
-2.  **Standard Tools work** (Phase 2).
+2.  **Standard Tools & Large Payloads work** (Phase 2).
 3.  **System is resilient** (Phase 3).
 4.  **Data is isolated** (Phase 4).
 5.  **Security policies are enforcing** (Phase 5).
+6.  **Authentication modes are resilient** (Phase 6).
 
 The functionality is declared **Fully Operational**.

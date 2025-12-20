@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -33,7 +34,7 @@ func NewProcessManager(logger *slog.Logger) *DefaultProcessManager {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	
+
 	return &DefaultProcessManager{
 		logger:   logger,
 		exitCode: -1,
@@ -59,23 +60,23 @@ func (pm *DefaultProcessManager) SetTracing(tracing *TracingManager) {
 func (pm *DefaultProcessManager) Start(ctx context.Context, command []string, workDir string, env []string) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	if pm.running {
 		return fmt.Errorf("process is already running")
 	}
-	
+
 	if len(command) == 0 {
 		return fmt.Errorf("command cannot be empty")
 	}
-	
+
 	// Create the command
 	pm.cmd = exec.CommandContext(ctx, command[0], command[1:]...)
-	
+
 	// Set working directory if specified
 	if workDir != "" {
 		pm.cmd.Dir = workDir
 	}
-	
+
 	// Set environment variables
 	processEnv := env
 	if len(env) > 0 {
@@ -83,35 +84,35 @@ func (pm *DefaultProcessManager) Start(ctx context.Context, command []string, wo
 	} else {
 		processEnv = os.Environ()
 	}
-	
+
 	// Inject trace context into environment variables if tracing is enabled
 	if pm.tracing != nil {
 		processEnv = pm.tracing.InjectProcessEnv(ctx, processEnv)
 	}
-	
+
 	pm.cmd.Env = processEnv
-	
+
 	// Create pipes for stdin, stdout, and stderr
 	var err error
-	
+
 	pm.stdin, err = pm.cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
-	
+
 	pm.stdout, err = pm.cmd.StdoutPipe()
 	if err != nil {
 		pm.stdin.Close()
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
-	
+
 	pm.stderr, err = pm.cmd.StderrPipe()
 	if err != nil {
 		pm.stdin.Close()
 		pm.stdout.Close()
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
-	
+
 	// Start the process
 	if err := pm.cmd.Start(); err != nil {
 		pm.stdin.Close()
@@ -119,22 +120,22 @@ func (pm *DefaultProcessManager) Start(ctx context.Context, command []string, wo
 		pm.stderr.Close()
 		return fmt.Errorf("failed to start process: %w", err)
 	}
-	
+
 	pm.running = true
 	pm.command = command
 	pm.logger.Info("Process started", "pid", pm.cmd.Process.Pid, "command", command)
-	
+
 	// Update process status metrics
 	if pm.metrics != nil {
 		pm.metrics.UpdateProcessStatus(command[0], true)
 	}
-	
+
 	// Start goroutine to monitor process exit
 	go pm.monitorProcess()
-	
+
 	// Start goroutine to handle stderr
 	go pm.handleStderr()
-	
+
 	return nil
 }
 
@@ -142,84 +143,93 @@ func (pm *DefaultProcessManager) Start(ctx context.Context, command []string, wo
 func (pm *DefaultProcessManager) Write(data []byte) error {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	
+
 	if !pm.running || pm.stdin == nil {
 		return fmt.Errorf("process is not running")
 	}
-	
+
 	_, err := pm.stdin.Write(data)
 	if err != nil {
 		pm.logger.Error("Failed to write to process stdin", "error", err)
 		return fmt.Errorf("failed to write to stdin: %w", err)
 	}
-	
+
 	return nil
 }
 
-// ReadLoop continuously reads from stdout and calls the handler for each message
+// ReadLoop continuously reads from stdout and calls the handler for each complete line
 func (pm *DefaultProcessManager) ReadLoop(handler func([]byte)) error {
 	pm.mu.RLock()
 	stdout := pm.stdout
 	running := pm.running
 	pm.mu.RUnlock()
-	
+
 	if !running || stdout == nil {
 		return fmt.Errorf("process is not running")
 	}
-	
-	buffer := make([]byte, 4096)
-	for {
-		n, err := stdout.Read(buffer)
-		if err != nil {
-			if err == io.EOF {
-				pm.logger.Debug("Process stdout closed")
-				return nil
-			}
-			pm.logger.Error("Error reading from process stdout", "error", err)
-			return fmt.Errorf("failed to read from stdout: %w", err)
-		}
-		
-		if n > 0 {
-			// Make a copy of the data to pass to the handler
-			data := make([]byte, n)
-			copy(data, buffer[:n])
+
+	scanner := bufio.NewScanner(stdout)
+
+	// Set a large buffer to handle very large tool lists or responses
+	// Default is 64KB, which is often too small for MCP tool definitions
+	const maxMessageSize = 10 * 1024 * 1024 // 10MB
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, maxMessageSize)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) > 0 {
+			// Make a copy of the data as scanner.Bytes() will be reused
+			data := make([]byte, len(line))
+			copy(data, line)
 			handler(data)
 		}
 	}
+
+	if err := scanner.Err(); err != nil {
+		if err == io.EOF {
+			pm.logger.Debug("Process stdout closed")
+			return nil
+		}
+		pm.logger.Error("Error reading from process stdout", "error", err)
+		return fmt.Errorf("failed to read from stdout: %w", err)
+	}
+
+	return nil
 }
 
 // Stop gracefully terminates the child process within the given timeout
 func (pm *DefaultProcessManager) Stop(timeout time.Duration) error {
 	pm.mu.Lock()
-	
+
 	if !pm.running || pm.cmd == nil || pm.cmd.Process == nil {
 		pm.mu.Unlock()
 		return nil // Already stopped
 	}
-	
+
 	pm.logger.Info("Stopping process", "pid", pm.cmd.Process.Pid, "timeout", timeout)
-	
+
 	// First, try graceful shutdown by closing stdin
 	if pm.stdin != nil {
 		pm.stdin.Close()
 		pm.stdin = nil
 	}
-	
+
 	process := pm.cmd.Process
 	cmd := pm.cmd
 	pm.mu.Unlock()
-	
+
 	// Send SIGTERM for graceful shutdown
 	if err := process.Signal(syscall.SIGTERM); err != nil {
 		pm.logger.Warn("Failed to send SIGTERM", "error", err)
 	}
-	
+
 	// Wait for graceful shutdown with timeout
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
 	}()
-	
+
 	select {
 	case err := <-done:
 		pm.handleProcessExit(err)
@@ -231,7 +241,7 @@ func (pm *DefaultProcessManager) Stop(timeout time.Duration) error {
 			pm.logger.Error("Failed to kill process", "error", err)
 			return fmt.Errorf("failed to kill process: %w", err)
 		}
-		
+
 		// Wait for the kill to complete
 		select {
 		case err := <-done:
@@ -262,7 +272,7 @@ func (pm *DefaultProcessManager) monitorProcess() {
 	if pm.cmd == nil {
 		return
 	}
-	
+
 	err := pm.cmd.Wait()
 	pm.handleProcessExit(err)
 }
@@ -271,18 +281,18 @@ func (pm *DefaultProcessManager) monitorProcess() {
 func (pm *DefaultProcessManager) handleProcessExit(err error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	
+
 	if !pm.running {
 		return // Already handled
 	}
-	
+
 	pm.running = false
-	
+
 	// Get exit code
 	if pm.cmd != nil && pm.cmd.ProcessState != nil {
 		pm.exitCode = pm.cmd.ProcessState.ExitCode()
 	}
-	
+
 	// Close pipes
 	if pm.stdin != nil {
 		pm.stdin.Close()
@@ -296,19 +306,19 @@ func (pm *DefaultProcessManager) handleProcessExit(err error) {
 		pm.stderr.Close()
 		pm.stderr = nil
 	}
-	
+
 	// Update process status metrics
 	if pm.metrics != nil && len(pm.command) > 0 {
 		pm.metrics.UpdateProcessStatus(pm.command[0], false)
 	}
-	
+
 	// Log exit
 	if err != nil {
 		pm.logger.Error("Process exited with error", "error", err, "exit_code", pm.exitCode)
 	} else {
 		pm.logger.Info("Process exited normally", "exit_code", pm.exitCode)
 	}
-	
+
 	// Signal completion (only close if not already closed)
 	select {
 	case <-pm.done:
@@ -318,31 +328,25 @@ func (pm *DefaultProcessManager) handleProcessExit(err error) {
 	}
 }
 
-// handleStderr reads and logs stderr output
+// handleStderr reads and logs stderr output line-by-line
 func (pm *DefaultProcessManager) handleStderr() {
 	pm.mu.RLock()
 	stderr := pm.stderr
 	pm.mu.RUnlock()
-	
+
 	if stderr == nil {
 		return
 	}
-	
-	buffer := make([]byte, 4096)
-	for {
-		n, err := stderr.Read(buffer)
-		if err != nil {
-			if err == io.EOF {
-				pm.logger.Debug("Process stderr closed")
-				return
-			}
-			pm.logger.Error("Error reading from process stderr", "error", err)
-			return
+
+	scanner := bufio.NewScanner(stderr)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line != "" {
+			pm.logger.Warn("Process stderr", "output", line)
 		}
-		
-		if n > 0 {
-			// Log stderr output
-			pm.logger.Warn("Process stderr", "output", string(buffer[:n]))
-		}
+	}
+
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		pm.logger.Error("Error reading from process stderr", "error", err)
 	}
 }
