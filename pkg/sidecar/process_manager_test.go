@@ -86,7 +86,7 @@ func TestProcessManager_Consistency_LongRunning(t *testing.T) {
 					continue
 				}
 
-				cmdStr := []string{"cmd", "/c", "timeout", "10"}
+				cmdStr := []string{"ping", "-n", "10", "127.0.0.1"}
 				if _, err := os.Stat("/bin/sh"); err == nil {
 					cmdStr = []string{"sleep", "10"}
 				}

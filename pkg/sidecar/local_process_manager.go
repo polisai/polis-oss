@@ -271,19 +271,14 @@ func (pm *LocalProcessManager) handleProcessExit(err error) {
 		pm.exitCode = pm.cmd.ProcessState.ExitCode()
 	}
 
-	// Close pipes
+	// Close stdin if not already closed (to ensure cleanup if process exit wasn't triggered by Stop)
 	if pm.stdin != nil {
 		pm.stdin.Close()
 		pm.stdin = nil
 	}
-	if pm.stdout != nil {
-		pm.stdout.Close()
-		pm.stdout = nil
-	}
-	if pm.stderr != nil {
-		pm.stderr.Close()
-		pm.stderr = nil
-	}
+	// stdout/stderr are closed by cmd.Wait(), so we don't close them here to avoid races with ReadLoop
+	pm.stdout = nil
+	pm.stderr = nil
 
 	if pm.metrics != nil && len(pm.command) > 0 {
 		pm.metrics.UpdateProcessStatus(pm.command[0], false)
