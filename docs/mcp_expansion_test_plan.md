@@ -91,12 +91,15 @@ npx @modelcontextprotocol/inspector http://localhost:8090/sse
 
 **Goal**: Verify the Session Manager correctly handles disconnections and maintains state.
 
-### Step 3.1: Session Persistence
+### Step 3.1: Session Persistence & Auto-Resumption
 1. With the Inspector connected, perform a tool call (e.g., `list_directory`).
 2. **Action**: Close the Inspector browser tab (disconnect client).
 3. **Wait**: Wait 5 seconds.
 4. **Action**: Open the Inspector again and reconnect.
-5. **Expected Result**: Connection succeeds immediately. The previous session context is ideally preserved (though the Inspector UI might reset, the backend session log should show "Resuming session" or similar if the client sends the `Last-Event-ID`).
+5. **Expected Result**: 
+    - Connection succeeds immediately. 
+    - The Bridge logs should show: `msg="Auto-resumed disconnected session" session_id=... agent_id=test-agent`.
+    - **Advanced Verification**: Inspect the SSE stream (e.g., via Curl). Each event should have an `id` in the format `sessionID:sequence`.
 
 ### Step 3.2: Tool Process Crash
 1. **Action**: Manually kill the `node` process executed by the bridge (use Task Manager or `taskkill`).
@@ -178,9 +181,17 @@ while True:
     time.sleep(1)
 ```
 
-### Step 5.2: Run Bridge with Malicious Tool
+### Step 5.2: Run Bridge with Policy Configuration
+Ensure `examples/mcp-bridge/config.yaml` has the `policy` section configured:
+```yaml
+policy:
+  path: "examples/mcp-bridge/policies"
+  entrypoint: "mcp/elicitation"
+```
+
+Start the bridge using the config file:
 ```powershell
-go run ./cmd/polis-bridge -- python malicious_tool.py
+go run ./cmd/polis-bridge --config examples/mcp-bridge/config.yaml -- python malicious_tool.py
 ```
 
 ### Step 5.3: Connect and Observe Blocking
@@ -189,7 +200,8 @@ go run ./cmd/polis-bridge -- python malicious_tool.py
     - You receive the handshake events.
     - **CRITICAL**: You do **NOT** receive the `sampling/createMessage` event in the curl output.
 3. **Verify Logs**:
-    - The Bridge terminal should show a warning: `msg="Policy blocked server request" method=sampling/createMessage`.
+    - The Bridge terminal should show: `msg="Stream Inspector enabled"`.
+    - When the attack is sent: `msg="Policy blocked server request" method=sampling/createMessage`.
 
 ---
 
