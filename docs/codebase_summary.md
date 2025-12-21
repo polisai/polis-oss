@@ -12,36 +12,39 @@ The **Secure AI Proxy** (Polis) is a high-performance, protocol-aware proxy desi
 
 ```mermaid
 graph TD
-    User[User/Client] -->|Request| Core[Polis Core :8090]
+    User[User/Client] -->|Request| Sidecar[Unified Sidecar :8090]
     
-    subgraph Polis Core
-        Core -->|Load| Config[File Config Provider]
-        Config -->|Watch| File[config.yaml]
-        Core -->|Route| Registry[Pipeline Registry]
-        Registry --> Executor[DAG Executor]
-        Executor -->|Node 1| Policy[OPA Policy Handler]
-        Executor -->|Node 2| DLP[DLP Handler]
-        Executor -->|Node 3| Egress[Egress Handler]
-        Executor -->|Telemetry| Logger[Async JSON Logger]
+    subgraph Unified Sidecar
+        Sidecar -->|Load| Config[Config Loader]
+        Config -->|Watch| File[polis.yaml]
+        
+        Sidecar -->|Route| Router[Bridge Router]
+        Router -->|Local| LocalProc[Local Process]
+        Router -->|E2B| E2BProc[E2B Sandbox]
+        
+        Sidecar -->|Intercept| Interceptor[Interceptor Server]
+        Interceptor -->|Eval| Policy[Policy Evaluator]
+        Interceptor -->|Context| CtxMgr[Context Manager]
     end
     
-    Egress --> Upstream[LLM / Service]
+    LocalProc --> Upstream[LLM / Service]
 ```
 
 ## Directory & File Index
 
 ### `cmd/` - Entry Points
 
-#### `cmd/polis-core/`
-*   **`main.go`**: The main entry point for the standalone open-source binary.
-    *   `main()`: Bootstraps logging, config provider, in-memory storage, and starts the server.
-    *   `watchConfig()`: Subscribes to configuration updates and reloads pipelines.
-    *   `startServer()`: Initializes the HTTP server with the DAG handler.
+#### `cmd/polis/`
+*   **`main.go`**: The **Unified** entry point for the Sidecar.
+    *   Loads unified configuration (or auto-adapts legacy formats).
+    *   Starts the single-port HTTP server (default :8090).
+    *   Manages lifecycle of Interceptor, Bridge Router, and Context Manager.
 
-#### `cmd/proxy/`
-*   **`main.go`**: Legacy entry point, currently used for E2E testing.
-    *   `run()`: Orchestrates the application lifecycle (telemetry, storage, server).
-    *   `startAdminServer()`: Starts a minimal admin server for health checks.
+#### `cmd/polis-core/` (Legacy)
+*   **`main.go`**: Previous standalone entry point. Preserved for reference/migration.
+
+#### `cmd/proxy/` (Legacy)
+*   **`main.go`**: Previous E2E testing entry point.
 
 ### `pkg/config/` - Configuration Management
 
@@ -146,6 +149,16 @@ graph TD
 *   **`circuitbreaker.go`**: Circuit breaker implementation.
 *   **`ratelimit.go`**: Rate limiter implementation.
 *   **`timeouts_retries.go`**: Timeout and retry logic.
+
+### `pkg/sidecar/` - Unified Sidecar Core
+*   **`sidecar.go`**: Main struct wiring all components together.
+*   **`config.go`** & **`config_loader.go`**: Unified configuration definition and hot-reloading loader.
+*   **`interceptor.go`**: Handles request interception and policy enforcement.
+*   **`bridge_router.go`**: Routes tool execution requests to appropriate runtimes (Local/E2B).
+*   **`context_manager.go`**: Manages ephemeral request contexts and decision storage.
+*   **`process_manager.go`** & **`local_process_manager.go`**: Abstraction for managing subprocesses.
+*   **`serialization.go`**: Helper for protocol-aware serialization (SSE/JSON-RPC).
+*   **`secrets.go`**: Secret redaction and validation.
 
 ### `tests/` - Testing
 
