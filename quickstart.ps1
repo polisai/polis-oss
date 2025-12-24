@@ -193,7 +193,52 @@ function Test-Requirements {
 
     return $availableOptions
 }
+function Get-ExampleChoice {
+    Write-Host ""
+    Write-Header "Choose Your Example"
+    Write-Host "Select which Polis feature you'd like to explore:"
+    Write-Host ""
+    Write-Host "  1) Default Quickstart (WAF + Basic Governance)"
+    Write-Host "     → Best for first-time users"
+    Write-Host "     → Shows prompt injection blocking"
+    Write-Host ""
+    Write-Host "  2) Basic Passthrough"
+    Write-Host "     → Simplest proxy configuration"
+    Write-Host "     → Just forwards traffic to upstream"
+    Write-Host ""
+    Write-Host "  3) LLM Guardrails"
+    Write-Host "     → AI firewall with semantic analysis"
+    Write-Host "     → Requires OpenAI API key"
+    Write-Host ""
+    Write-Host "  4) PII Redaction"
+    Write-Host "     → DLP to redact emails, phone numbers"
+    Write-Host "     → Regex-based pattern matching"
+    Write-Host ""
+    Write-Host "  5) Policy Enforcement"
+    Write-Host "     → OPA integration for access control"
+    Write-Host "     → Custom Rego policies"
+    Write-Host ""
+    Write-Host "  6) Observability"
+    Write-Host "     → Structured logging examples"
+    Write-Host "     → Debug-level JSON logs"
+    Write-Host ""
 
+    do {
+        $choice = Read-Host "Enter your choice (1-6)"
+
+        switch ($choice) {
+            "1" { return "quickstart" }
+            "2" { return "basic-passthrough" }
+            "3" { return "llm-guardrails" }
+            "4" { return "pii-redaction" }
+            "5" { return "policy-enforcement" }
+            "6" { return "observability" }
+            default {
+                Write-Error "Invalid choice. Please enter a number between 1 and 6."
+            }
+        }
+    } while ($true)
+}
 function Get-UserChoice {
     param([string]$AvailableOptions)
 
@@ -247,33 +292,80 @@ function Get-UserChoice {
 }
 
 function Invoke-Path {
-    param([string]$Choice)
+    param(
+        [string]$Choice,
+        [string]$Example
+    )
+
+    # Prepare config file based on example
+    $configFile = "quickstart/config-local.yaml"
+    if ($Example -ne "quickstart") {
+        $configFile = "examples/$Example/config.yaml"
+        Write-Info "Using example: $Example"
+        Write-Host ""
+
+        # Special setup for LLM guardrails
+        if ($Example -eq "llm-guardrails") {
+            if ([string]::IsNullOrEmpty($env:OPENAI_API_KEY)) {
+                Write-Error "LLM Guardrails requires OPENAI_API_KEY environment variable"
+                Write-Host "Set it with: `$env:OPENAI_API_KEY='sk-...'"
+                exit 1
+            }
+            # Copy prompts if needed
+            if (-not (Test-Path "prompts")) {
+                Write-Step "Copying prompts directory..."
+                Copy-Item -Recurse "examples/llm-guardrails/prompts" .
+            }
+        }
+    }
 
     switch ($Choice) {
         "A" {
-            Write-Header "Starting Docker Compose Path"
-            Write-Step "Running: docker compose -f quickstart/compose.polis.yaml up --build"
-            Write-Host ""
-            docker compose -f quickstart/compose.polis.yaml up --build
+            Write-Header "Starting Docker Compose Path - $Example"
+            if ($Example -eq "quickstart") {
+                Write-Step "Running: docker compose -f quickstart/compose.polis.yaml up --build"
+                Write-Host ""
+                docker compose -f quickstart/compose.polis.yaml up --build
+            } else {
+                Write-Step "Running Docker Compose with $configFile"
+                Write-Host ""
+                docker compose -f quickstart/compose.polis.yaml up --build
+            }
         }
         "B" {
-            Write-Header "Starting Local Binary Path"
-            Write-Step "This will build Polis and start it with a local mock server"
+            Write-Header "Starting Local Binary Path - $Example"
+            Write-Step "This will build Polis and start it with configuration"
             Write-Host ""
-            Write-Host "Building Polis..."
-            go build -o polis.exe ./cmd/polis-core
-            Write-Host ""
-            Write-Host "Starting mock upstream..."
-            Start-Process python -ArgumentList "mock_upstream.py" -WindowStyle Hidden
-            Start-Sleep 2
-            Write-Host ""
-            Write-Host "Starting Polis proxy on :8090..."
             Write-Host "Press Ctrl+C to stop when you're done testing."
             Write-Host ""
-            ./polis.exe --config quickstart/config-local.yaml --listen :8090 --log-level info --pretty
+
+            # Build Polis
+            Write-Step "Building Polis..."
+            go build -o polis.exe ./cmd/polis-core
+            Write-Host ""
+
+            # Start mock upstream if needed
+            $mockProcess = $null
+            if ($Example -eq "quickstart" -or $Example -eq "basic-passthrough") {
+                Write-Step "Starting mock upstream..."
+                $mockProcess = Start-Process python -ArgumentList "mock_upstream.py" -WindowStyle Hidden -PassThru
+                Start-Sleep 2
+                Write-Host ""
+            }
+
+            # Run Polis with selected config
+            Write-Step "Starting Polis proxy..."
+            try {
+                ./polis.exe --config $configFile --listen :8090 --log-level info --pretty
+            } finally {
+                # Cleanup mock upstream
+                if ($mockProcess) {
+                    Stop-Process -Id $mockProcess.Id -ErrorAction SilentlyContinue
+                }
+            }
         }
         "C" {
-            Write-Header "Starting Kubernetes Path"
+            Write-Header "Starting Kubernetes Path - $Example"
             Write-Step "Building Docker image for Kubernetes..."
             Write-Host ""
             docker build -t polis-oss:latest .
@@ -324,6 +416,8 @@ function Show-NextSteps {
     Write-Host "• Check out examples/pipelines/ for more complex policies"
     Write-Host "• Read docs/onboarding/quickstart.md for integration guide"
     Write-Host "• Configure your own agent to use Polis as an HTTP proxy"
+    Write-Host "• Enable TLS: go build -o build/polis-cert.exe ./cmd/polis-cert && .\build\polis-cert.exe generate -test-suite -output-dir build/certs"
+    Write-Host "• See examples/tls-termination/ for HTTPS inspection, mTLS, and SNI"
     Write-Host ""
     Write-Host "To stop Polis:" -ForegroundColor White
     Write-Host "   docker compose -f quickstart/compose.polis.yaml down"
@@ -335,12 +429,13 @@ try {
 
     if (![string]::IsNullOrEmpty($availableOptions)) {
         $choice = Get-UserChoice $availableOptions
+        $example = Get-ExampleChoice
 
         Write-Host ""
-        Write-Step "Starting path $choice..."
+        Write-Step "Starting path $choice with example: $example..."
         Start-Sleep 1
 
-        Invoke-Path $choice
+        Invoke-Path $choice $example
 
         # This will only run if the command exits (user stops service)
         Show-NextSteps

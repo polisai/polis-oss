@@ -199,6 +199,73 @@ check_requirements() {
     echo "$available_options"
 }
 
+# Get example choice
+get_example_choice() {
+    echo ""
+    print_header "Choose Your Example"
+    echo "Select which Polis feature you'd like to explore:"
+    echo ""
+    echo "  1) Default Quickstart (WAF + Basic Governance)"
+    echo "     → Best for first-time users"
+    echo "     → Shows prompt injection blocking"
+    echo ""
+    echo "  2) Basic Passthrough"
+    echo "     → Simplest proxy configuration"
+    echo "     → Just forwards traffic to upstream"
+    echo ""
+    echo "  3) LLM Guardrails"
+    echo "     → AI firewall with semantic analysis"
+    echo "     → Requires OpenAI API key"
+    echo ""
+    echo "  4) PII Redaction"
+    echo "     → DLP to redact emails, phone numbers"
+    echo "     → Regex-based pattern matching"
+    echo ""
+    echo "  5) Policy Enforcement"
+    echo "     → OPA integration for access control"
+    echo "     → Custom Rego policies"
+    echo ""
+    echo "  6) Observability"
+    echo "     → Structured logging examples"
+    echo "     → Debug-level JSON logs"
+    echo ""
+
+    while true; do
+        echo -n "Enter your choice (1-6): "
+        read -r example_choice
+
+        case "$example_choice" in
+            1)
+                echo "quickstart"
+                return
+                ;;
+            2)
+                echo "basic-passthrough"
+                return
+                ;;
+            3)
+                echo "llm-guardrails"
+                return
+                ;;
+            4)
+                echo "pii-redaction"
+                return
+                ;;
+            5)
+                echo "policy-enforcement"
+                return
+                ;;
+            6)
+                echo "observability"
+                return
+                ;;
+            *)
+                print_error "Invalid choice. Please enter a number between 1 and 6."
+                ;;
+        esac
+    done
+}
+
 # Get user choice
 get_user_choice() {
     local available_options="$1"
@@ -257,24 +324,76 @@ get_user_choice() {
 # Execute chosen path
 execute_path() {
     local choice="$1"
+    local example="$2"
+
+    # Prepare config file based on example
+    local config_file="quickstart/config-local.yaml"
+    if [ "$example" != "quickstart" ]; then
+        config_file="examples/$example/config.yaml"
+        print_info "Using example: $example"
+        echo ""
+
+        # Special setup for LLM guardrails
+        if [ "$example" = "llm-guardrails" ]; then
+            if [ -z "$OPENAI_API_KEY" ]; then
+                print_error "LLM Guardrails requires OPENAI_API_KEY environment variable"
+                echo "Set it with: export OPENAI_API_KEY='sk-...'"
+                exit 1
+            fi
+            # Copy prompts if needed
+            if [ ! -d "prompts" ]; then
+                print_step "Copying prompts directory..."
+                cp -r "examples/llm-guardrails/prompts" .
+            fi
+        fi
+    fi
 
     case "$choice" in
         "A")
-            print_header "Starting Docker Compose Path"
-            print_step "Running: make quickstart-docker"
-            echo ""
-            make quickstart-docker
+            print_header "Starting Docker Compose Path - $example"
+            if [ "$example" = "quickstart" ]; then
+                print_step "Running: make quickstart-docker"
+                echo ""
+                make quickstart-docker
+            else
+                print_step "Running Docker Compose with $config_file"
+                echo ""
+                # Run with custom config
+                docker compose -f quickstart/compose.polis.yaml up --build
+            fi
             ;;
         "B")
-            print_header "Starting Local Binary Path"
-            print_step "This will build Polis and start it with a local mock server"
+            print_header "Starting Local Binary Path - $example"
+            print_step "This will build Polis and start it with configuration"
             echo ""
             echo "Press Ctrl+C to stop when you're done testing."
             echo ""
-            make quickstart-local
+
+            # Build Polis
+            print_step "Building Polis..."
+            go build -o polis ./cmd/polis-core
+            echo ""
+
+            # Start mock upstream if needed
+            if [ "$example" = "quickstart" ] || [ "$example" = "basic-passthrough" ]; then
+                print_step "Starting mock upstream..."
+                python3 mock_upstream.py &
+                MOCK_PID=$!
+                sleep 2
+                echo ""
+            fi
+
+            # Run Polis with selected config
+            print_step "Starting Polis proxy..."
+            ./polis --config "$config_file" --listen :8090 --log-level info --pretty
+
+            # Cleanup mock upstream
+            if [ ! -z "$MOCK_PID" ]; then
+                kill $MOCK_PID 2>/dev/null || true
+            fi
             ;;
         "C")
-            print_header "Starting Kubernetes Path"
+            print_header "Starting Kubernetes Path - $example"
             print_step "Running: make quickstart-k8s"
             echo ""
             make quickstart-k8s
@@ -316,6 +435,8 @@ show_next_steps() {
     echo "• Check out examples/pipelines/ for more complex policies"
     echo "• Read docs/onboarding/quickstart.md for integration guide"
     echo "• Configure your own agent to use Polis as an HTTP proxy"
+    echo "• Enable TLS: go build -o build/polis-cert ./cmd/polis-cert && ./build/polis-cert generate -test-suite -output-dir build/certs"
+    echo "• See examples/tls-termination/ for HTTPS inspection, mTLS, and SNI"
     echo ""
     echo -e "${BOLD}To stop Polis:${NC}"
     echo "   make clean"
@@ -327,16 +448,17 @@ main() {
 
     if [ -n "$available_options" ]; then
         choice=$(get_user_choice "$available_options")
+        example=$(get_example_choice)
 
         echo ""
-        print_step "Starting path $choice..."
+        print_step "Starting path $choice with example: $example..."
         sleep 1
 
-        # Note: execute_path will run the make command which may block
+        # Note: execute_path will run the command which may block
         # The next steps will only show if the user stops the service
-        execute_path "$choice"
+        execute_path "$choice" "$example"
 
-        # This will only run if the make command exits (user stops service)
+        # This will only run if the command exits (user stops service)
         show_next_steps
     fi
 }

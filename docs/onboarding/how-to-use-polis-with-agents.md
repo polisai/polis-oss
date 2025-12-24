@@ -67,7 +67,10 @@ response = llm.invoke({"messages": [...]})
 
 - **Doesn't work for HTTP/2 or gRPC** (needs TCP-level proxying)
 - **Some libraries don't respect env proxies** (e.g., custom Go binaries, some older libraries)
-- **TLS/mTLS might require extra setup** on the proxy side (certificate validation)
+- **HTTPS requires TLS termination** - Polis supports this! See the [TLS Termination Guide](../../examples/tls-termination/)
+  - Generate self-signed certs with `polis-cert` utility
+  - Configure TLS in your Polis config to inspect HTTPS traffic
+  - For mTLS, add client certificate authentication
 - **Can't intercept database connections** or non-HTTP protocols
 
 ***

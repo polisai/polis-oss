@@ -5,10 +5,11 @@
 ## 🎯 The Goal
 
 By the end of this guide, you'll have:
-- ✅ Polis running and intercepting HTTP traffic
+- ✅ Polis running and intercepting HTTP/HTTPS traffic
 - ✅ Seen a real governance rule (WAF) block malicious requests
 - ✅ Watched allowed requests flow through to a mock LLM service
 - ✅ Understanding of how to integrate Polis with your own agents
+- ✅ (Optional) TLS termination with certificate generation
 
 **Time to "wow" moment: < 5 minutes**
 
@@ -75,6 +76,45 @@ make quickstart-k8s
 ```
 
 **What happens:** Deploys Polis as a sidecar in Kubernetes, demonstrates production architecture.
+
+---
+
+## 🔐 Optional: Enable TLS Termination
+
+For production-like setups or when working with HTTPS-only clients, you can enable TLS termination:
+
+### **Generate Test Certificates**
+
+```bash
+# Build the certificate utility
+go build -o build/polis-cert ./cmd/polis-cert
+
+# Generate a complete test certificate suite
+./build/polis-cert generate -test-suite -output-dir build/certs
+```
+
+This creates:
+- `ca.crt`/`ca.key`: Certificate Authority
+- `server.crt`/`server.key`: Server certificate (localhost, *.example.com)
+- `client.crt`/`client.key`: Client certificate for mTLS
+
+### **Use TLS Configuration**
+
+```yaml
+server:
+  tls:
+    enabled: true
+    cert_file: "./build/certs/server.crt"
+    key_file: "./build/certs/server.key"
+```
+
+Now Polis can:
+- ✅ **Terminate TLS** and inspect encrypted traffic
+- ✅ **Apply governance** (DLP, WAF) to HTTPS requests
+- ✅ **Re-encrypt** to upstream services
+- ✅ Support **mutual TLS** (mTLS) for authentication
+
+See [`examples/tls-termination/`](../../examples/tls-termination/) for complete examples.
 
 ---
 
@@ -302,7 +342,11 @@ kubectl delete -f quickstart/k8s/
 - **Multi-Agent**: Configure different pipelines per agent
 
 ### **Production Readiness**
-- **TLS Termination**: Configure HTTPS endpoints
+- **[TLS Termination](../../examples/tls-termination/)**: Full HTTPS inspection with certificate generation
+  - Self-signed certificates for development with `polis-cert` utility
+  - SNI (Server Name Indication) for multiple domains
+  - Mutual TLS (mTLS) for client authentication
+  - Production-ready security configurations
 - **Authentication**: Add JWT or API key validation
 - **Rate Limiting**: Implement request throttling
 - **Monitoring**: Set up metrics and alerting
