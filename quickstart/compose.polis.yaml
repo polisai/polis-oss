@@ -1,0 +1,20 @@
+services:
+  polis-core:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--listen", ":8090", "--log-level", "info", "--pretty"]
+    depends_on:
+      - mock-upstream
+
+  mock-upstream:
+    image: python:3.12-slim
+    volumes:
+      - ../mock_upstream.py:/app/mock_upstream.py:ro
+    command: ["python", "/app/mock_upstream.py"]
+    expose:
+      - "8081"

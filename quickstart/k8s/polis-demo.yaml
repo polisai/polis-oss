@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: polis-config
+  labels:
+    app: polis-demo
+data:
+  config.yaml: |
+    logging:
+      level: info
+      pretty: true
+    pipelines:
+      - id: quickstart-waf-egress-k8s
+        version: 1
+        description: "K8s quickstart pipeline: blocks prompt-injection phrase, otherwise proxies to mock upstream"
+        agentId: "*"
+        protocol: http
+        nodes:
+          - id: waf
+            type: waf.inspect
+            config:
+              action: block
+              severity: high
+              rules:
+                - name: Prompt Injection (Ignore Instructions)
+                  pattern: "(?i)ignore\\s+(all\\s+)?previous\\s+instructions"
+                  action: block
+                  severity: high
+            on:
+              success: egress
+              failure: deny
+          - id: egress
+            type: egress.http
+            config:
+              upstream_url: http://localhost:8081
+            on:
+              success: ""
+              failure: deny
+          - id: deny
+            type: terminal.deny
+            config:
+              status: 403
+              code: WAF_BLOCKED
+              message: "Request blocked by Polis WAF quickstart rule"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: polis-demo
+  labels:
+    app: polis-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: polis-demo
+  template:
+    metadata:
+      labels:
+        app: polis-demo
+    spec:
+      containers:
+      - name: polis-core
+        image: polis-oss:latest
+        imagePullPolicy: Never  # Use local image built with docker build
+        ports:
+        - containerPort: 8090
+          name: proxy
+        volumeMounts:
+        - name: config
+          mountPath: /app/config.yaml
+          subPath: config.yaml
+        command: ["./polis-core"]
+        args: ["--config", "/app/config.yaml", "--listen", ":8090", "--log-level", "info", "--pretty"]
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8090
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8090
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      - name: mock-upstream
+        image: python:3.12-slim
+        ports:
+        - containerPort: 8081
+          name: mock
+        command: ["python", "-c"]
+        args:
+        - |
+          import http.server
+          import socketserver
+          import json
+          from urllib.parse import urlparse, parse_qs
+
+          class MockHandler(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(200)
+                  self.send_header('Content-type', 'application/json')
+                  self.end_headers()
+                  response = {"status": "ok", "message": "Mock upstream responding", "path": self.path}
+                  self.wfile.write(json.dumps(response).encode())
+
+              def do_POST(self):
+                  content_length = int(self.headers.get('Content-Length', 0))
+                  post_data = self.rfile.read(content_length)
+
+                  self.send_response(200)
+                  self.send_header('Content-type', 'application/json')
+                  self.end_headers()
+
+                  try:
+                      request_json = json.loads(post_data.decode())
+                      response = {
+                          "status": "success",
+                          "message": "Request processed by mock upstream",
+                          "received": request_json,
+                          "path": self.path
+                      }
+                  except:
+                      response = {
+                          "status": "success",
+                          "message": "Request processed by mock upstream",
+                          "received": post_data.decode(),
+                          "path": self.path
+                      }
+
+                  self.wfile.write(json.dumps(response).encode())
+
+          with socketserver.TCPServer(("", 8081), MockHandler) as httpd:
+              print("Mock upstream serving on port 8081")
+              httpd.serve_forever()
+      volumes:
+      - name: config
+        configMap:
+          name: polis-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: polis-demo
+  labels:
+    app: polis-demo
+spec:
+  selector:
+    app: polis-demo
+  ports:
+  - name: proxy
+    port: 8090
+    targetPort: 8090
+  - name: mock
+    port: 8081
+    targetPort: 8081
