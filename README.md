@@ -64,8 +64,7 @@ cd polis-oss
 pwsh -File build.ps1 build
 
 # OR Build using Go directly
-go build -o polis.exe ./cmd/polis-core
-go build -o polis-bridge.exe ./cmd/polis-bridge
+go build -o polis.exe ./cmd/polis
 ```
 
 ### Running the Proxy
@@ -85,32 +84,34 @@ Run the binary with your configuration file:
 
 ### Running the MCP Bridge
 
-The MCP Bridge enables governance of CLI-based MCP tools:
+The unified `polis` executable governs MCP tools via configuration:
 
-```bash
-# Basic usage - govern a filesystem MCP tool
-./polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox
-
-# With configuration file
-./polis-bridge.exe --config examples/mcp-bridge/config.yaml
+```yaml
+# polis.yaml
+server:
+  port: 8090
+tools:
+  filesystem:
+    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp/sandbox"]
 ```
 
-**Bridge Command Line Flags:**
+Run Polis:
+```bash
+./polis.exe --config polis.yaml
+```
 
-* `--port, -p`: Port to listen on (default: `8090`).
-* `--config, -c`: Path to configuration file (YAML).
-* `--log-level, -l`: Log level (`debug`, `info`, `warn`, `error`).
+* `--port`: Port to listen on (default: `8090`).
+* `--config`: Path to configuration file (YAML).
 
-**Bridge Endpoints:**
+**Bridge Endpoints (Unified):**
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/sse` | GET | SSE stream for server→client messages |
-| `/message` | POST | JSON-RPC messages from client→server |
+| `/mcp/sse` | GET | SSE stream for server→client messages |
+| `/mcp/message` | POST | JSON-RPC messages from client→server |
 | `/health` | GET | Health check endpoint |
-| `/metrics` | GET | Prometheus metrics |
 
-See [examples/mcp-bridge/README.md](examples/mcp-bridge/README.md) for detailed documentation.
+See [docs/testing](./docs/testing) for detailed usage.
 
 ## ⚙️ Configuration Guide
 
@@ -215,49 +216,24 @@ nodes:
 The MCP Bridge configuration supports the following options:
 
 ```yaml
-# Bridge server settings
-listen_addr: ":8090"
+# Server settings
+server:
+  port: 8090
 
-# Command to execute - the MCP tool to govern
-command:
-  - npx
-  - -y
-  - "@modelcontextprotocol/server-filesystem"
-  - "/tmp/sandbox"
+# Tool Configuration
+tools:
+  filesystem:
+    command:
+      - npx
+      - -y
+      - "@modelcontextprotocol/server-filesystem"
+      - "/tmp/sandbox"
+    env:
+      NODE_ENV: "production"
 
-# Working directory for the child process
-work_dir: ""
-
-# Environment variables for the child process
-env:
-  - "NODE_ENV=production"
-
-# Graceful shutdown timeout
-shutdown_timeout: 5s
-
-# Event buffer size for reconnection support
-buffer_size: 1000
-
-# Session management
-session:
-  buffer_size: 1000      # Events to buffer per session
-  buffer_duration: 60s   # How long to keep buffered events
-  session_timeout: 300s  # Inactive session cleanup
-
-# Gateway integration (optional)
-gateway:
-  enabled: true
-  url: "http://localhost:8085"
-  agent_id: "bridge-001"
-
-# Metrics and observability
-metrics:
-  enabled: true
-  path: "/metrics"
-  tracing:
-    enabled: false
-    endpoint: "http://localhost:4317"
-    service_name: "polis-bridge"
+# Logging
+logging:
+  level: "info"
 ```
 
 ### Elicitation Policy Example

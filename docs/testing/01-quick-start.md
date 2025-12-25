@@ -7,8 +7,8 @@ This guide gets you from zero to a working Polis MCP proxy in 5 minutes.
 ```powershell
 cd C:\Users\adam\Desktop\startup\polis-oss
 
-# Build the unified sidecar (or use polis-bridge for now)
-go build -o polis-bridge.exe ./cmd/polis-bridge
+# Build the unified sidecar
+go build -o polis.exe ./cmd/polis
 ```
 
 ## Step 2: Create Test Directory (30 sec)
@@ -23,8 +23,17 @@ echo "SECRET_API_KEY=sk-12345" > C:\Users\adam\Desktop\mcp-test\secrets.txt
 ## Step 3: Start the Bridge (30 sec)
 
 ```powershell
-# Start Polis Bridge with Filesystem MCP Server
-.\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-filesystem "C:\Users\adam\Desktop\mcp-test"
+# Create config file
+@"
+server:
+  port: 8090
+tools:
+  filesystem:
+    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\adam\\Desktop\\mcp-test"]
+"@ | Out-File -Encoding UTF8 polis.yaml
+
+# Start Polis with config
+.\polis.exe --config polis.yaml
 ```
 
 **Expected Output:**

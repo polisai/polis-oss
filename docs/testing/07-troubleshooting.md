@@ -52,7 +52,7 @@ Get-Process -Id (Get-NetTCPConnection -LocalPort 8090).OwningProcess
    Get-Process polis-bridge -ErrorAction SilentlyContinue
    
    # If not running, start it
-   .\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-filesystem .
+   .\polis.exe --config polis.yaml
    ```
 
 2. **Check port conflict:**
@@ -61,7 +61,8 @@ Get-Process -Id (Get-NetTCPConnection -LocalPort 8090).OwningProcess
    netstat -ano | findstr :8090
    
    # Use different port
-   .\polis-bridge.exe --port 8091 -- ...
+   # Use different port (override in command or config)
+   .\polis.exe --port 8091 --config polis.yaml
    ```
 
 3. **Check firewall:**
@@ -92,7 +93,7 @@ Get-Process -Id (Get-NetTCPConnection -LocalPort 8090).OwningProcess
 
 3. **Use relaxed mode (development):**
    ```powershell
-   .\polis-bridge.exe --enforce-agent-id=false --port 8090 -- ...
+   # Note: polis.exe enforces agent-id by default. Ensure client sends X-Agent-ID.
    ```
 
 ### Issue: "403 Forbidden"
@@ -228,7 +229,7 @@ Get-Process -Id (Get-NetTCPConnection -LocalPort 8090).OwningProcess
 
 1. **Enable debug logging:**
    ```powershell
-   .\polis-bridge.exe --log-level debug --config ... -- ...
+   .\polis.exe --log-level debug --config ...
    ```
 
 2. **Check policy input:**
@@ -385,7 +386,7 @@ Get-Process -Id (Get-NetTCPConnection -LocalPort 8090).OwningProcess
 
 3. **Reduce logging:**
    ```powershell
-   .\polis-bridge.exe --log-level warn -- ...
+   .\polis.exe --log-level warn --config ...
    ```
 
 ### Issue: "Memory Usage High"
@@ -414,7 +415,7 @@ Get-Process -Id (Get-NetTCPConnection -LocalPort 8090).OwningProcess
 ### Enable Verbose Logging
 
 ```powershell
-.\polis-bridge.exe --log-level debug --port 8090 -- ...
+.\polis.exe --log-level debug --config ...
 ```
 
 ### Log Levels
@@ -439,7 +440,7 @@ Get-Process -Id (Get-NetTCPConnection -LocalPort 8090).OwningProcess
 ### Capture Logs to File
 
 ```powershell
-.\polis-bridge.exe --port 8090 -- npx ... 2>&1 | Tee-Object -FilePath bridge.log
+.\polis.exe --config ... 2>&1 | Tee-Object -FilePath bridge.log
 ```
 
 ---
@@ -452,7 +453,8 @@ When reporting issues, include:
 
 1. **Bridge version:**
    ```powershell
-   .\polis-bridge.exe --version
+   # Check help output
+   .\polis.exe --help
    ```
 
 2. **Configuration:**
@@ -463,7 +465,7 @@ When reporting issues, include:
 3. **Logs:**
    ```powershell
    # Run with debug logging
-   .\polis-bridge.exe --log-level debug ...
+   .\polis.exe --log-level debug --config ...
    ```
 
 4. **Environment:**

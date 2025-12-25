@@ -18,7 +18,7 @@ This directory contains comprehensive testing guides for validating the Polis Un
 
 Before starting any test scenario, ensure you have:
 
-- **Polis Binary**: Built `polis.exe` or `polis-bridge.exe`
+- **Polis Binary**: Built `polis.exe`
 - **Node.js 18+**: For MCP tool servers (`npx`)
 - **Python 3.10+**: For IDE adapter script
 - **VS Code** or **Windsurf**: Target IDE for integration testing

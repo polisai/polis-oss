@@ -48,7 +48,8 @@ cd C:\Users\adam\Desktop\startup\polis-oss
 echo $env:BRAVE_API_KEY
 
 # Start bridge
-.\polis-bridge.exe --port 8092 -- npx -y @anthropics/brave-search-mcp
+# (Ensure you have a polis.yaml configured with brave-search tool)
+.\polis.exe --config polis-search.yaml
 ```
 
 **Expected Output:**
@@ -171,7 +172,7 @@ Invoke-RestMethod -Uri "http://localhost:8092/health"
 ```powershell
 # Start with invalid key
 $env:BRAVE_API_KEY = "invalid-key"
-.\polis-bridge.exe --port 8092 -- npx -y @anthropics/brave-search-mcp
+.\polis.exe --config polis-search.yaml
 ```
 
 **Test:**
@@ -231,7 +232,7 @@ decision := {"action": "block", "reason": "Search query contains blocked terms"}
 
 **Start Bridge with Policy:**
 ```powershell
-.\polis-bridge.exe --port 8092 --config examples/mcp-bridge/search-config.yaml -- npx -y @anthropics/brave-search-mcp
+.\polis.exe --config examples/mcp-bridge/search-config.yaml
 ```
 
 **Test:**
@@ -288,12 +289,12 @@ INFO processed message direction=egress method=tools/call tool=brave_web_search 
 
 **Setup:**
 ```powershell
-# Terminal 1: Git bridge
-.\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-git .
+# Terminal 1: Git bridge (polis-git.yaml)
+.\polis.exe --config polis-git.yaml
 
-# Terminal 2: Search bridge
+# Terminal 2: Search bridge (polis-search.yaml)
 $env:BRAVE_API_KEY = "BSA-your-key"
-.\polis-bridge.exe --port 8092 -- npx -y @anthropics/brave-search-mcp
+.\polis.exe --config polis-search.yaml
 ```
 
 **IDE Config:**

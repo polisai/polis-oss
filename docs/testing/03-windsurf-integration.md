@@ -17,7 +17,7 @@ Windsurf's Cascade AI uses MCP for tool access. Like VS Code, it expects Stdio-b
 
 - Windsurf IDE installed
 - Python 3.10+ with `requests` library
-- Polis Bridge binary built
+- Polis binary (`polis.exe`) built
 
 ## Step 1: Locate Windsurf MCP Config
 
@@ -46,9 +46,19 @@ echo '{"mcpServers":{}}' > "$env:USERPROFILE\.codeium\windsurf\mcp_config.json"
 
 ### Git MCP Server (Recommended for Testing)
 
+Create `polis-git.yaml`:
+```yaml
+server:
+  port: 8090
+tools:
+  git:
+    command: ["npx", "-y", "@modelcontextprotocol/server-git", "."]
+```
+
+Run Polis:
 ```powershell
 cd C:\Users\adam\Desktop\startup\polis-oss
-.\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-git .
+.\polis.exe --config polis-git.yaml
 ```
 
 ### Verify Bridge is Running
@@ -167,12 +177,20 @@ INFO processed message direction=egress method=tools/call
 
 ### Start Brave Search Bridge
 
-```powershell
-# Set API key
-$env:BRAVE_API_KEY = "BSA-xxxxxxxxxxxxxxxx"
+Create `polis-search.yaml`:
+```yaml
+server:
+  port: 8092
+tools:
+  brave-search:
+    command: ["npx", "-y", "@anthropics/brave-search-mcp"]
+    env:
+      BRAVE_API_KEY: "BSA-xxxxxxxxxxxxxxxx"
+```
 
-# Start bridge on different port
-.\polis-bridge.exe --port 8092 -- npx -y @anthropics/brave-search-mcp
+Start bridge:
+```powershell
+.\polis.exe --config polis-search.yaml
 ```
 
 ### Test Search
@@ -247,11 +265,13 @@ Run separate bridges for each project:
 ```powershell
 # Project A
 cd C:\Projects\ProjectA
-polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-git .
+# (Ensure polis-project-a.yaml exists with port 8090)
+polis.exe --config polis-project-a.yaml
 
 # Project B
 cd C:\Projects\ProjectB
-polis-bridge.exe --port 8093 -- npx -y @modelcontextprotocol/server-git .
+# (Ensure polis-project-b.yaml exists with port 8093)
+polis.exe --config polis-project-b.yaml
 ```
 
 ## Success Criteria

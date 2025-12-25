@@ -287,9 +287,10 @@ decision := {"action": "block", "reason": "Commits require approval"} if {
 }
 ```
 
-**Start Bridge with Policy:**
+**Start Polis with Policy:**
 ```powershell
-.\polis-bridge.exe --port 8090 --config examples/mcp-bridge/config.yaml -- npx -y @modelcontextprotocol/server-git "C:\Users\adam\Desktop\git-test-repo"
+# Ensure your config.yaml includes the policy path and git tool definition
+.\polis.exe --config examples/mcp-bridge/config.yaml
 ```
 
 **Test:**

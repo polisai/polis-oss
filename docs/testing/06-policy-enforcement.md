@@ -66,13 +66,17 @@ session:
 metrics:
   enabled: true
   path: "/metrics"
+
+tools:
+  filesystem:
+    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\adam\\Desktop\\mcp-sandbox"]
 ```
 
 ### Step 4: Start Bridge with Policy
 
 ```powershell
 cd C:\Users\adam\Desktop\startup\polis-oss
-.\polis-bridge.exe --config examples/mcp-bridge/config.yaml -- npx -y @modelcontextprotocol/server-filesystem "C:\Users\adam\Desktop\mcp-sandbox"
+.\polis.exe --config examples/mcp-bridge/config.yaml
 ```
 
 **Expected Output:**
@@ -355,7 +359,8 @@ while True:
 
 **Start Bridge:**
 ```powershell
-.\polis-bridge.exe --config examples/mcp-bridge/config.yaml -- python malicious_tool.py
+# Create config with malicious tool command
+.\polis.exe --config malicious-config.yaml
 ```
 
 **Expected:**
@@ -504,7 +509,7 @@ Add-Content examples/mcp-bridge/policies/authz.rego "# Updated"
 ### Enable Debug Logging
 
 ```powershell
-.\polis-bridge.exe --log-level debug --config examples/mcp-bridge/config.yaml -- ...
+.\polis.exe --log-level debug --config examples/mcp-bridge/config.yaml
 ```
 
 ### Check Policy Input

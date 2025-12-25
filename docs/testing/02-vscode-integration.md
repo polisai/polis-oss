@@ -20,7 +20,7 @@ VS Code expects MCP servers to communicate via Stdio. The Python adapter bridges
 
 - VS Code with MCP extension (e.g., Continue, Cline, or similar)
 - Python 3.10+ with `requests` library
-- Polis Bridge binary built
+- Polis binary (`polis.exe`) built
 
 ## Step 1: Install Python Dependencies
 
@@ -42,15 +42,29 @@ python C:\Users\adam\Desktop\startup\polis-oss\examples\mcp-bridge\ide-adapter\m
 
 ## Step 3: Start Polis Bridge
 
-### Option A: Git MCP Server
-```powershell
-cd C:\Users\adam\Desktop\startup\polis-oss
-.\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-git .
+### Create Configuration (polis.yaml)
+
+#### Option A: Git MCP Server
+```yaml
+server:
+  port: 8090
+tools:
+  git:
+    command: ["npx", "-y", "@modelcontextprotocol/server-git", "."]
 ```
 
-### Option B: Filesystem MCP Server
+#### Option B: Filesystem MCP Server
+```yaml
+server:
+  port: 8090
+tools:
+  filesystem:
+    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\adam\\Desktop\\startup"]
+```
+
+### Start Polis
 ```powershell
-.\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-filesystem "C:\Users\adam\Desktop\startup"
+.\polis.exe --config polis.yaml
 ```
 
 ## Step 4: Configure VS Code MCP Settings
@@ -140,7 +154,7 @@ VS Code MCP configuration is typically at:
 
 ### Check Bridge Logs
 
-In the Polis Bridge terminal, you should see:
+In the Polis terminal, you should see:
 ```
 INFO New session created session_id=abc123 agent_id=vscode-user
 INFO Sent endpoint event session_id=abc123
@@ -182,16 +196,17 @@ INFO processed message direction=egress method=tools/call
 
 Run multiple bridges on different ports:
 
+Create three config files and run three instances (or one instance with multiple tools if supported, but simpler to use separate ports for now):
+
 ```powershell
-# Terminal 1: Git server
-.\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-git .
+# Terminal 1: Git server (polis-git.yaml -> port 8090)
+.\polis.exe --config polis-git.yaml
 
-# Terminal 2: Filesystem server
-.\polis-bridge.exe --port 8091 -- npx -y @modelcontextprotocol/server-filesystem "C:\Users\adam\Desktop"
+# Terminal 2: Filesystem server (polis-fs.yaml -> port 8091)
+.\polis.exe --config polis-fs.yaml
 
-# Terminal 3: Brave Search (requires API key)
-$env:BRAVE_API_KEY = "your-api-key"
-.\polis-bridge.exe --port 8092 -- npx -y @anthropics/brave-search-mcp
+# Terminal 3: Brave Search (polis-search.yaml -> port 8092)
+.\polis.exe --config polis-search.yaml
 ```
 
 Configure all in VS Code:
