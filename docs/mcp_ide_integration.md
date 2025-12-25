@@ -41,9 +41,20 @@ The adapter script (`mcp_sse_client.py`) will be used as the "command" in your I
 ### 2.1 Start Polis Bridge (Hosting Git)
 
 Run the bridge in a terminal. It will host the Git MCP server.
+Run the bridge via the unified sidecar:
+
+1. Create `git-config.yaml`:
+```yaml
+server:
+  port: 8090
+tools:
+  git:
+    command: ["npx", "-y", "@modelcontextprotocol/server-git", "."]
+```
+
+2. Run Polis:
 ```bash
-# Windows
-./polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-git .
+./polis.exe --config git-config.yaml
 ```
 
 ### 2.2 Configure VS Code
@@ -90,10 +101,18 @@ Run the bridge in a terminal. It will host the Git MCP server.
 **Note**: You need a Perplexity API Key.
 
 ```bash
-set PERPLEXITY_API_KEY=pplx-xxxxxxxx
-./polis-bridge.exe --port 8091 -- npx -y @modelcontextprotocol/server-perplexity
+# Create pplx-config.yaml
+server:
+  port: 8091
+tools:
+  perplexity:
+    command: ["npx", "-y", "@modelcontextprotocol/server-perplexity"]
+    env:
+      PERPLEXITY_API_KEY: "pplx-xxxxxxxx"
+
+# Run Polis on port 8091
+./polis.exe --config pplx-config.yaml
 ```
-*(Note: We use port 8091 to avoid conflict if the Git bridge is still running, or stop the previous one.)*
 
 ### 3.2 Update IDE Configuration
 

@@ -14,22 +14,22 @@ go build -o polis-bridge.exe ./cmd/polis-bridge
 ## Step 2: Create Test Directory (30 sec)
 
 ```powershell
-# Create a sandbox directory for testing
-mkdir C:\Users\adam\Desktop\mcp-sandbox
-echo "Hello from Polis MCP Proxy!" > C:\Users\adam\Desktop\mcp-sandbox\test.txt
-echo "SECRET_API_KEY=sk-12345" > C:\Users\adam\Desktop\mcp-sandbox\secrets.txt
+# Create a test directory for testing
+mkdir C:\Users\adam\Desktop\mcp-test
+echo "Hello from Polis MCP Proxy!" > C:\Users\adam\Desktop\mcp-test\test.txt
+echo "SECRET_API_KEY=sk-12345" > C:\Users\adam\Desktop\mcp-test\secrets.txt
 ```
 
 ## Step 3: Start the Bridge (30 sec)
 
 ```powershell
 # Start Polis Bridge with Filesystem MCP Server
-.\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-filesystem "C:\Users\adam\Desktop\mcp-sandbox"
+.\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-filesystem "C:\Users\adam\Desktop\mcp-test"
 ```
 
 **Expected Output:**
 ```
-INFO Starting polis-bridge port=8090 command=[npx -y @modelcontextprotocol/server-filesystem C:\Users\adam\Desktop\mcp-sandbox]
+INFO Starting polis-bridge port=8090 command=[npx -y @modelcontextprotocol/server-filesystem C:\Users\adam\Desktop\mcp-test]
 INFO Process started pid=12345
 INFO MCP handshake completed successfully
 INFO HTTP server starting addr=:8090
@@ -86,7 +86,7 @@ npx @modelcontextprotocol/inspector
 1. Select `read_file`
 2. Enter arguments:
    ```json
-   {"path": "C:\\Users\\adam\\Desktop\\mcp-sandbox\\test.txt"}
+   {"path": "C:\\Users\\adam\\Desktop\\mcp-test\\test.txt"}
    ```
 3. Click **Run**
 4. **Expected Result**: `Hello from Polis MCP Proxy!`

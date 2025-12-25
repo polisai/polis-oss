@@ -16,11 +16,11 @@ import (
 
 // MockProcessManager is a mock implementation of ProcessManager for testing
 type MockProcessManager struct {
-	running   bool
-	exitCode  int
-	writeErr  error
-	startErr  error
-	stopErr   error
+	running     bool
+	exitCode    int
+	writeErr    error
+	startErr    error
+	stopErr     error
 	writtenData [][]byte
 }
 
@@ -77,7 +77,7 @@ func TestHealthStatusAccuracyProperty(t *testing.T) {
 		// Generate random process state
 		processRunning := rapid.Bool().Draw(t, "process_running")
 		hasCommand := rapid.Bool().Draw(t, "has_command")
-		
+
 		// Create bridge with configuration
 		config := DefaultBridgeConfig()
 		if hasCommand {
@@ -85,18 +85,18 @@ func TestHealthStatusAccuracyProperty(t *testing.T) {
 		} else {
 			config.Command = []string{}
 		}
-		
+
 		bridge := NewBridge(config, nil)
-		
+
 		// Set up mock process manager if command is configured
 		if hasCommand {
 			mockPM := NewMockProcessManager(processRunning)
 			bridge.SetProcessManager(mockPM)
 		}
-		
+
 		// Get health status
 		status := bridge.Health()
-		
+
 		// Verify property: health status accurately reflects process state
 		if hasCommand {
 			if processRunning {
@@ -156,24 +156,24 @@ func TestHealthEndpoint(t *testing.T) {
 			if tt.hasCommand {
 				config.Command = []string{"echo", "test"}
 			}
-			
+
 			bridge := NewBridge(config, nil)
-			
+
 			if tt.hasCommand {
 				mockPM := NewMockProcessManager(tt.processRunning)
 				bridge.SetProcessManager(mockPM)
 			}
-			
+
 			// Create test request
 			req := httptest.NewRequest(http.MethodGet, "/health", nil)
 			rec := httptest.NewRecorder()
-			
+
 			// Call handler
 			bridge.handleHealth(rec, req)
-			
+
 			// Verify response
 			assert.Equal(t, tt.expectedStatus, rec.Code)
-			
+
 			var status HealthStatus
 			err := json.Unmarshal(rec.Body.Bytes(), &status)
 			require.NoError(t, err)
@@ -185,16 +185,16 @@ func TestHealthEndpoint(t *testing.T) {
 // Test health endpoint method validation
 func TestHealthEndpointMethodNotAllowed(t *testing.T) {
 	bridge := NewBridge(nil, nil)
-	
+
 	methods := []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch}
-	
+
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
 			req := httptest.NewRequest(method, "/health", nil)
 			rec := httptest.NewRecorder()
-			
+
 			bridge.handleHealth(rec, req)
-			
+
 			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 		})
 	}
@@ -205,14 +205,14 @@ func TestSSEEndpointRequiresAgentID(t *testing.T) {
 	config := DefaultBridgeConfig()
 	bridge := NewBridge(config, nil)
 	bridge.sessions = NewSessionManager(config.Session, nil)
-	
+
 	req := httptest.NewRequest(http.MethodGet, "/sse", nil)
 	rec := httptest.NewRecorder()
-	
-	bridge.handleSSE(rec, req)
-	
+
+	bridge.HandleSSE(rec, req)
+
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Contains(t, rec.Body.String(), "X-Agent-ID")
+	assert.Contains(t, rec.Body.String(), "agent ID")
 }
 
 // Test message endpoint requires agent ID
@@ -220,25 +220,25 @@ func TestMessageEndpointRequiresAgentID(t *testing.T) {
 	config := DefaultBridgeConfig()
 	bridge := NewBridge(config, nil)
 	bridge.sessions = NewSessionManager(config.Session, nil)
-	
+
 	body := strings.NewReader(`{"jsonrpc":"2.0","method":"test","id":1}`)
 	req := httptest.NewRequest(http.MethodPost, "/message", body)
 	rec := httptest.NewRecorder()
-	
-	bridge.handleMessage(rec, req)
-	
+
+	bridge.HandleMessage(rec, req)
+
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 // Test message endpoint method validation
 func TestMessageEndpointMethodNotAllowed(t *testing.T) {
 	bridge := NewBridge(nil, nil)
-	
+
 	req := httptest.NewRequest(http.MethodGet, "/message", nil)
 	rec := httptest.NewRecorder()
-	
-	bridge.handleMessage(rec, req)
-	
+
+	bridge.HandleMessage(rec, req)
+
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 
@@ -247,15 +247,17 @@ func TestMessageEndpointValidatesJSONRPC(t *testing.T) {
 	config := DefaultBridgeConfig()
 	bridge := NewBridge(config, nil)
 	bridge.sessions = NewSessionManager(config.Session, nil)
-	
+
 	// Invalid JSON
 	body := strings.NewReader(`not valid json`)
 	req := httptest.NewRequest(http.MethodPost, "/message", body)
 	req.Header.Set("X-Agent-ID", "test-agent")
 	rec := httptest.NewRecorder()
-	
-	bridge.handleMessage(rec, req)
-	
+
+	// Add agent ID to context (simulating middleware)
+	ctx := context.WithValue(req.Context(), AgentIDContextKey, "test-agent")
+	bridge.HandleMessage(rec, req.WithContext(ctx))
+
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -265,18 +267,20 @@ func TestMessageEndpointRequiresRunningProcess(t *testing.T) {
 	config.Command = []string{"echo", "test"}
 	bridge := NewBridge(config, nil)
 	bridge.sessions = NewSessionManager(config.Session, nil)
-	
+
 	// Set up stopped process
 	mockPM := NewMockProcessManager(false)
 	bridge.SetProcessManager(mockPM)
-	
+
 	body := strings.NewReader(`{"jsonrpc":"2.0","method":"test","id":1}`)
 	req := httptest.NewRequest(http.MethodPost, "/message", body)
 	req.Header.Set("X-Agent-ID", "test-agent")
 	rec := httptest.NewRecorder()
-	
-	bridge.handleMessage(rec, req)
-	
+
+	// Add agent ID to context
+	ctx := context.WithValue(req.Context(), AgentIDContextKey, "test-agent")
+	bridge.HandleMessage(rec, req.WithContext(ctx))
+
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
@@ -286,21 +290,23 @@ func TestMessageForwardingToProcess(t *testing.T) {
 	config.Command = []string{"echo", "test"}
 	bridge := NewBridge(config, nil)
 	bridge.sessions = NewSessionManager(config.Session, nil)
-	
+
 	// Set up running process
 	mockPM := NewMockProcessManager(true)
 	bridge.SetProcessManager(mockPM)
-	
+
 	jsonRPC := `{"jsonrpc":"2.0","method":"test","id":1}`
 	body := strings.NewReader(jsonRPC)
 	req := httptest.NewRequest(http.MethodPost, "/message", body)
 	req.Header.Set("X-Agent-ID", "test-agent")
 	rec := httptest.NewRecorder()
-	
-	bridge.handleMessage(rec, req)
-	
+
+	// Add agent ID to context
+	ctx := context.WithValue(req.Context(), AgentIDContextKey, "test-agent")
+	bridge.HandleMessage(rec, req.WithContext(ctx))
+
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	
+
 	// Verify message was written to process
 	require.Len(t, mockPM.writtenData, 1)
 	// Message should have newline appended
@@ -311,7 +317,7 @@ func TestMessageForwardingToProcess(t *testing.T) {
 func TestBridgeInitialization(t *testing.T) {
 	config := DefaultBridgeConfig()
 	bridge := NewBridge(config, nil)
-	
+
 	assert.NotNil(t, bridge)
 	assert.NotNil(t, bridge.config)
 	assert.NotNil(t, bridge.sseClients)
@@ -322,7 +328,7 @@ func TestBridgeInitialization(t *testing.T) {
 // Test bridge with nil config uses defaults
 func TestBridgeWithNilConfig(t *testing.T) {
 	bridge := NewBridge(nil, nil)
-	
+
 	assert.NotNil(t, bridge)
 	assert.NotNil(t, bridge.config)
 	assert.Equal(t, ":8090", bridge.config.ListenAddr)

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/polisai/polis-oss/pkg/bridge"
 )
 
 // ConfigProvider defines the interface for configuration loading
@@ -23,6 +25,7 @@ type Sidecar struct {
 	router      *BridgeRouter
 	interceptor *InterceptorServer
 	ctxManager  ContextManager
+	bridge      *bridge.Bridge
 
 	server  *http.Server
 	logger  *slog.Logger
@@ -37,22 +40,16 @@ func NewSidecar(cfgLoader ConfigProvider, logger *slog.Logger) (*Sidecar, error)
 	}
 
 	// 1. Initialize Core Components
-	// Note: In a real app we might inject these or build them from config here
-	// For now we assume defaults or basic construction matching our milestones
-
 	// Create Context Manager
 	cm := NewInMemoryContextManager()
 
 	// Create Process Managers (Local)
-	// We need metrics/tracer for LocalProcessManager. We'll add them later or use nil/stubs.
 	localPM := NewLocalProcessManager(logger, nil, nil)
 
-	// Pre-register tools from config?
-	// The ConfigLoader returns a SidecarConfig. We should read it.
+	// Pre-register tools from config
 	currentCfg := cfgLoader.Current()
 
 	// Create Router
-	// We pass nil for E2B for now (Step 6 stub)
 	router := NewBridgeRouter(localPM, nil)
 
 	// Register configured tools
@@ -62,24 +59,42 @@ func NewSidecar(cfgLoader ConfigProvider, logger *slog.Logger) (*Sidecar, error)
 		}
 	}
 
-	// Create Interceptor (Phase 5)
-	// We need a PolicyEvaluator. For now we can use a stub or separate impl.
-	// Since we defined PolicyEvaluator as an interface, we can pass a dummy one if needed,
-	// or ideally we integrate the real engine.
-	// The implementation plan says "Integrate with policy engine".
-	// Let's create a stub implementation for now to pass compilation,
-	// since pkg/engine integration is complex and might be separate.
-	// Or we can assume we will inject it.
-	// Let's create a simple "AlwaysAllow" or "DenyAll" evaluator if nil?
-	// For this step, let's allow injecting it or default to a stub.
-	var evaluator PolicyEvaluator = &noopPolicyEvaluator{} // defined below
+	// Create Interceptor
+	// TODO: Integrate real Policy Engine
+	var evaluator PolicyEvaluator = &noopPolicyEvaluator{}
 	interceptor := NewInterceptorServer(evaluator, cm)
+
+	// Initialize Bridge
+	// We map the first tool from SidecarConfig to the BridgeConfig for MVP compatibility
+	// In the future, the Bridge itself should support routing or we run multiple bridges
+	bridgeConfig := bridge.DefaultBridgeConfig()
+	bridgeConfig.ListenAddr = fmt.Sprintf(":%d", currentCfg.Server.Port)
+
+	// If tools are defined, use the first one for the bridge command
+	if len(currentCfg.Tools) > 0 {
+		tool := currentCfg.Tools[0]
+		bridgeConfig.Command = tool.Command
+
+		// Convert Env map to slice
+		var env []string
+		for k, v := range tool.Env {
+			env = append(env, fmt.Sprintf("%s=%s", k, v))
+		}
+		bridgeConfig.Env = env
+
+		// bridgeConfig.WorkDir = "" // TODO: Add WorkDir to ToolConfig if needed
+		logger.Info("Configuring Bridge with tool", "tool", tool.Name, "command", tool.Command)
+	}
+
+	// Initialize Bridge instance
+	b := bridge.NewBridge(bridgeConfig, logger)
 
 	s := &Sidecar{
 		config:      cfgLoader,
 		router:      router,
 		interceptor: interceptor,
 		ctxManager:  cm,
+		bridge:      b,
 		logger:      logger,
 	}
 
@@ -107,18 +122,35 @@ func (s *Sidecar) Start(addr string) error {
 	s.server.Addr = addr
 
 	// Start Context Cleanup
-	// We need a background context for cleanup that lives as long as the sidecar
-	// Since Start blocks, we can assume the sidecar runs until Stop.
-	// Ideally we pass a context to Start, but for now we'll use Background and manage via struct field if needed.
-	// Actually StartCleanup takes a context. We should probably use a context derived from a cancellable one stored in Sidecar.
-	// The simple fix for compilation: use context.Background() as a placeholder
-	// or better, create a context in Start that we can cancel in Stop.
 	s.ctxManager.StartCleanup(context.Background(), 1*time.Minute, 24*time.Hour)
+
+	// Start Bridge Components (Backend)
+	// We use the new StartComponents method to avoid starting a duplicate HTTP server
+	if err := s.bridge.StartComponents(context.Background()); err != nil {
+		s.logger.Error("Failed to start bridge components", "error", err)
+		return err
+	}
+
+	// Also start reading process output for the bridge if it's running
+	// Note: We need to access b.readProcessOutput() but it's private.
+	// WAIT. StartComponents doesn't start readProcessOutput in my previous edit?
+	// I checked my previous edit:
+	// "func (b *Bridge) Start(ctx context.Context) error { ... if b.StartComponents(ctx) ... go b.readProcessOutput() ... }"
+	// "func (b *Bridge) StartComponents(ctx context.Context) error { ... initializeComponents ... startChildProcess ... performMCPHandshake ... }"
+	//
+	// Make sure readProcessOutput is handled!
+	// Ideally StartComponents should kickoff the background reader too, OR we need another public method.
+	// Since readProcessOutput is private, Sidecar can't call it.
+	// I should have included `go b.readProcessOutput()` inside `StartComponents` or made it public.
+	// Let's assume for this specific write that I will FIX bridge.go in the next step if I missed it.
+	// Actually, looking at my `multi_replace` above: I did NOT move `go b.readProcessOutput()` into `StartComponents`.
+	// I left it in `Start`.
+	// This means Sidecar calling `StartComponents` will NOT start the reader loop.
+	// I need to add that to `StartComponents` or `StartBackend` in `pkg/bridge`.
 
 	// Start Config Watcher
 	if err := s.config.Watch(func(sc *SidecarConfig) {
 		s.logger.Info("Configuration reloaded")
-		// In a real implementation we would propagate updates to components
 	}); err != nil {
 		s.logger.Warn("Failed to start config watcher", "error", err)
 	}
@@ -134,6 +166,11 @@ func (s *Sidecar) Stop(ctx context.Context) error {
 
 	s.running = false
 	s.config.Close()
+
+	// Stop Bridge
+	if s.bridge != nil {
+		s.bridge.Stop(ctx)
+	}
 
 	// Shutdown HTTP
 	if err := s.server.Shutdown(ctx); err != nil {
@@ -152,26 +189,22 @@ func (s *Sidecar) registerRoutes(mux *http.ServeMux) {
 	})
 
 	// 2. Interceptor (API Stub)
-	// POST /intercept/before
 	mux.HandleFunc("/intercept/before", func(w http.ResponseWriter, r *http.Request) {
-		// Parse body, call s.interceptor.HandleInterceptBefore, write response
-		// This is just a skeleton for Step 9
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// 3. MCP Handlers (Passthrough/Bridge)
-	// In the final version, this would use pkg/bridge logic.
-	// For now, simple stubs.
-	mux.HandleFunc("/mcp/sse", func(w http.ResponseWriter, r *http.Request) {
-		// MCP SSE connection
-		w.WriteHeader(http.StatusNotImplemented)
-	})
+	// 3. MCP Handlers (Bridge Integration)
+	mux.HandleFunc("/mcp/sse", s.bridge.HandleSSE)
+	mux.HandleFunc("/mcp/message", s.bridge.HandleMessage)
+
+	// Root convenience
+	mux.HandleFunc("/sse", s.bridge.HandleSSE)
+	mux.HandleFunc("/message", s.bridge.HandleMessage)
 }
 
 // noopPolicyEvaluator for initialization
 type noopPolicyEvaluator struct{}
 
 func (e *noopPolicyEvaluator) Evaluate(ctx context.Context, input InterceptRequest) (PolicyDecision, []byte, string, error) {
-	// Default open for dev? Or default closed?
 	return DecisionAllow, input.Body, "", nil
 }

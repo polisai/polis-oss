@@ -19,14 +19,27 @@ This document outlines the step-by-step procedures to validate the Polis MCP Exp
 ### Step 1.1: Start the Bridge
 Run the bridge with the standard filesystem server.
 
-```powershell
 # Create a Sandbox
 mkdir -p C:\Users\adam\Desktop\mcp-test
 Set-Content C:\Users\adam\Desktop\mcp-test\secret.txt "CONFIDENTIAL DATA"
 
-# Start Bridge (Keep this terminal open)
-go run ./cmd/polis-bridge --port 8090 -- npx -y @modelcontextprotocol/server-filesystem "C:\Users\adam\Desktop\mcp-test"
-```
+# Create Config File (polis-test.yaml)
+Set-Content polis-test.yaml @"
+server:
+  port: 8090
+logging:
+  level: "info"
+tools:
+  filesystem:
+    command: 
+      - "npx"
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "C:\\Users\\adam\\Desktop\\mcp-test"
+"@
+
+# Start Polis Unified Sidecar
+go run ./cmd/polis --config polis-test.yaml
 
 ### Step 1.2: Verify Health Endpoint (tested)
 Open a new terminal and check if the bridge is alive.

@@ -39,7 +39,18 @@ echo "New file content" > feature.txt
 
 ```powershell
 cd C:\Users\adam\Desktop\startup\polis-oss
-.\polis-bridge.exe --port 8090 -- npx -y @modelcontextprotocol/server-git "C:\Users\adam\Desktop\git-test-repo"
+
+# Create config.yaml
+Set-Content config.yaml @"
+server:
+  port: 8090
+tools:
+  git:
+    command: ["npx", "-y", "@modelcontextprotocol/server-git", "C:\\Users\\adam\\Desktop\\git-test-repo"]
+"@
+
+# Run Polis
+.\polis.exe --config config.yaml
 ```
 
 ### Step 3: Connect Test Client

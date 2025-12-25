@@ -118,21 +118,9 @@ func (b *Bridge) SetStreamInspector(si StreamInspector) {
 func (b *Bridge) Start(ctx context.Context) error {
 	b.logger.Info("Starting MCP Bridge", "listen_addr", b.config.ListenAddr)
 
-	// Initialize components if not already set
-	if err := b.initializeComponents(); err != nil {
-		return fmt.Errorf("failed to initialize components: %w", err)
-	}
-
-	// Start the child process if command is configured
-	if len(b.config.Command) > 0 {
-		if err := b.startChildProcess(ctx); err != nil {
-			return fmt.Errorf("failed to start child process: %w", err)
-		}
-
-		// Perform MCP initialization handshake
-		if err := b.performMCPHandshake(ctx); err != nil {
-			b.logger.Warn("MCP handshake failed, continuing anyway", "error", err)
-		}
+	// Initialize components and start backend
+	if err := b.StartComponents(ctx); err != nil {
+		return err
 	}
 
 	// Set up HTTP server with routes
@@ -153,10 +141,7 @@ func (b *Bridge) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start reading from child process stdout
-	if b.process != nil && b.process.IsRunning() {
-		go b.readProcessOutput()
-	}
+	// (Reader loop moving to StartComponents)
 
 	// Wait for context cancellation or error
 	select {
@@ -165,6 +150,34 @@ func (b *Bridge) Start(ctx context.Context) error {
 	case <-ctx.Done():
 		return b.Stop(context.Background())
 	}
+}
+
+// StartComponents initializes the backend components (Process, Sessions) without starting the HTTP server.
+// This is used when embedding the bridge in another application (e.g. Unified Sidecar).
+func (b *Bridge) StartComponents(ctx context.Context) error {
+	// Initialize components if not already set
+	if err := b.initializeComponents(); err != nil {
+		return fmt.Errorf("failed to initialize components: %w", err)
+	}
+
+	// Start the child process if command is configured
+	if len(b.config.Command) > 0 {
+		if err := b.startChildProcess(ctx); err != nil {
+			return fmt.Errorf("failed to start child process: %w", err)
+		}
+
+		// Perform MCP initialization handshake
+		if err := b.performMCPHandshake(ctx); err != nil {
+			b.logger.Warn("MCP handshake failed, continuing anyway", "error", err)
+		}
+	}
+
+	// Start reading from child process stdout (Moved here so it runs when using StartComponents)
+	if b.process != nil && b.process.IsRunning() {
+		go b.readProcessOutput()
+	}
+
+	return nil
 }
 
 // Stop gracefully stops the bridge server
@@ -326,10 +339,10 @@ func (b *Bridge) setupRoutes(mux *http.ServeMux) {
 	mux.Handle("/health", wrapBase(b.handleHealth))
 
 	// SSE endpoint for server-to-client messages (Auth required)
-	mux.Handle("/sse", wrapWithAuth(b.handleSSE))
+	mux.Handle("/sse", wrapWithAuth(b.HandleSSE))
 
 	// Message endpoint for client-to-server JSON-RPC (Auth required)
-	mux.Handle("/message", wrapWithAuth(b.handleMessage))
+	mux.Handle("/message", wrapWithAuth(b.HandleMessage))
 
 	// Metrics endpoint if enabled
 	if b.metrics != nil && b.config.Metrics != nil {
@@ -355,7 +368,8 @@ func (b *Bridge) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSSE handles GET /sse requests for SSE streaming
-func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
+// HandleSSE handles GET /sse requests for SSE streaming
+func (b *Bridge) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -507,7 +521,8 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMessage handles POST /message requests for JSON-RPC messages
-func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
+// HandleMessage handles POST /message requests for JSON-RPC messages
+func (b *Bridge) HandleMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
