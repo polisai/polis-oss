@@ -49,7 +49,7 @@ func (cl *ConfigLoader) Load() (*SidecarConfig, error) {
 	}
 
 	// Basic validation could go here
-	if config.Server.Port == 0 && config.Server.InterceptorPort == 0 && config.Server.MCPPort == 0 {
+	if config.Server.Port == 0 && len(config.Server.ListenParams) == 0 {
 		// Default port logic can handle this, or we error.
 		// For now, raw load.
 	}

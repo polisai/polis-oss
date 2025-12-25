@@ -8,7 +8,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/polisai/polis-oss/internal/tls"
 	"github.com/polisai/polis-oss/pkg/bridge"
+	configpkg "github.com/polisai/polis-oss/pkg/config"
+	"github.com/polisai/polis-oss/pkg/domain"
+	pipelinepkg "github.com/polisai/polis-oss/pkg/engine"
+	"github.com/polisai/polis-oss/pkg/storage"
 )
 
 // ConfigProvider defines the interface for configuration loading
@@ -21,16 +26,29 @@ type ConfigProvider interface {
 
 // Sidecar is the unified component container
 type Sidecar struct {
-	config      ConfigProvider
-	router      *BridgeRouter
+	config ConfigProvider
+	logger *slog.Logger
+	mu     sync.RWMutex
+
+	// MCP Components
+	router *BridgeRouter
+	bridge *bridge.Bridge
+
+	// Core Components
+	policyStore      storage.PolicyStore
+	engineFactory    *pipelinepkg.EngineFactory
+	pipelineRegistry *pipelinepkg.PipelineRegistry
+	dagHandler       *pipelinepkg.DAGHandler
+
+	// Servers
+	servers []*http.Server
+	errCh   chan error
+	stopCh  chan struct{}
+	running bool
+
+	// Legacy / Compatibility
 	interceptor *InterceptorServer
 	ctxManager  ContextManager
-	bridge      *bridge.Bridge
-
-	server  *http.Server
-	logger  *slog.Logger
-	mu      sync.RWMutex
-	running bool
 }
 
 // NewSidecar creates a new unified sidecar instance
@@ -42,6 +60,21 @@ func NewSidecar(cfgLoader ConfigProvider, logger *slog.Logger) (*Sidecar, error)
 	// 1. Initialize Core Components
 	// Create Context Manager
 	cm := NewInMemoryContextManager()
+
+	// Initialize Policy Store
+	policyStore := storage.NewMemoryPolicyStore()
+
+	// Initialize Engine Factory
+	engineFactory := pipelinepkg.NewEngineFactory(policyStore, logger)
+
+	// Initialize Pipeline Registry
+	pipelineRegistry := pipelinepkg.NewPipelineRegistry(engineFactory)
+
+	// Initialize DAG Handler
+	dagHandler := pipelinepkg.NewDAGHandler(pipelinepkg.DAGHandlerConfig{
+		Registry: pipelineRegistry,
+		Logger:   logger,
+	})
 
 	// Create Process Managers (Local)
 	localPM := NewLocalProcessManager(logger, nil, nil)
@@ -60,56 +93,53 @@ func NewSidecar(cfgLoader ConfigProvider, logger *slog.Logger) (*Sidecar, error)
 	}
 
 	// Create Interceptor
-	// TODO: Integrate real Policy Engine
+	// TODO: Integrate real Policy Engine (reusing engineFactory)
 	var evaluator PolicyEvaluator = &noopPolicyEvaluator{}
 	interceptor := NewInterceptorServer(evaluator, cm)
 
 	// Initialize Bridge
-	// We map the first tool from SidecarConfig to the BridgeConfig for MVP compatibility
-	// In the future, the Bridge itself should support routing or we run multiple bridges
 	bridgeConfig := bridge.DefaultBridgeConfig()
-	bridgeConfig.ListenAddr = fmt.Sprintf(":%d", currentCfg.Server.Port)
 
-	// If tools are defined, use the first one for the bridge command
+	// Use legacy Port if ListenParams is empty
+	listenPort := currentCfg.Server.Port
+	if listenPort == 0 && len(currentCfg.Server.ListenParams) == 0 {
+		listenPort = 8090 // Default
+	}
+	bridgeConfig.ListenAddr = fmt.Sprintf(":%d", listenPort)
+
+	// If tools are defined, use the first one for the bridge command (MVP Compatibility)
 	if len(currentCfg.Tools) > 0 {
 		tool := currentCfg.Tools[0]
 		bridgeConfig.Command = tool.Command
 
-		// Convert Env map to slice
 		var env []string
 		for k, v := range tool.Env {
 			env = append(env, fmt.Sprintf("%s=%s", k, v))
 		}
 		bridgeConfig.Env = env
-
-		// bridgeConfig.WorkDir = "" // TODO: Add WorkDir to ToolConfig if needed
 		logger.Info("Configuring Bridge with tool", "tool", tool.Name, "command", tool.Command)
 	}
 
-	// Initialize Bridge instance
 	b := bridge.NewBridge(bridgeConfig, logger)
 
 	s := &Sidecar{
-		config:      cfgLoader,
-		router:      router,
-		interceptor: interceptor,
-		ctxManager:  cm,
-		bridge:      b,
-		logger:      logger,
-	}
-
-	// 2. Setup HTTP Server
-	mux := http.NewServeMux()
-	s.registerRoutes(mux)
-
-	s.server = &http.Server{
-		Handler: mux,
+		config:           cfgLoader,
+		logger:           logger,
+		router:           router,
+		bridge:           b,
+		policyStore:      policyStore,
+		engineFactory:    engineFactory,
+		pipelineRegistry: pipelineRegistry,
+		dagHandler:       dagHandler,
+		interceptor:      interceptor,
+		ctxManager:       cm,
+		stopCh:           make(chan struct{}),
 	}
 
 	return s, nil
 }
 
-// Start initializes background processes and starts the HTTP server
+// Start initializes background processes and starts all configured HTTP/HTTPS servers
 func (s *Sidecar) Start(addr string) error {
 	s.mu.Lock()
 	if s.running {
@@ -119,44 +149,170 @@ func (s *Sidecar) Start(addr string) error {
 	s.running = true
 	s.mu.Unlock()
 
-	s.server.Addr = addr
+	ctx := context.Background()
 
-	// Start Context Cleanup
-	s.ctxManager.StartCleanup(context.Background(), 1*time.Minute, 24*time.Hour)
+	// 1. Start Context Cleanup
+	s.ctxManager.StartCleanup(ctx, 1*time.Minute, 24*time.Hour)
 
-	// Start Bridge Components (Backend)
-	// We use the new StartComponents method to avoid starting a duplicate HTTP server
-	if err := s.bridge.StartComponents(context.Background()); err != nil {
+	// 2. Start Bridge Components (Backend)
+	if err := s.bridge.StartComponents(ctx); err != nil {
 		s.logger.Error("Failed to start bridge components", "error", err)
 		return err
 	}
 
-	// Also start reading process output for the bridge if it's running
-	// Note: We need to access b.readProcessOutput() but it's private.
-	// WAIT. StartComponents doesn't start readProcessOutput in my previous edit?
-	// I checked my previous edit:
-	// "func (b *Bridge) Start(ctx context.Context) error { ... if b.StartComponents(ctx) ... go b.readProcessOutput() ... }"
-	// "func (b *Bridge) StartComponents(ctx context.Context) error { ... initializeComponents ... startChildProcess ... performMCPHandshake ... }"
-	//
-	// Make sure readProcessOutput is handled!
-	// Ideally StartComponents should kickoff the background reader too, OR we need another public method.
-	// Since readProcessOutput is private, Sidecar can't call it.
-	// I should have included `go b.readProcessOutput()` inside `StartComponents` or made it public.
-	// Let's assume for this specific write that I will FIX bridge.go in the next step if I missed it.
-	// Actually, looking at my `multi_replace` above: I did NOT move `go b.readProcessOutput()` into `StartComponents`.
-	// I left it in `Start`.
-	// This means Sidecar calling `StartComponents` will NOT start the reader loop.
-	// I need to add that to `StartComponents` or `StartBackend` in `pkg/bridge`.
-
-	// Start Config Watcher
-	if err := s.config.Watch(func(sc *SidecarConfig) {
-		s.logger.Info("Configuration reloaded")
-	}); err != nil {
+	// 3. Start Config Watcher
+	if err := s.config.Watch(s.handleConfigUpdate); err != nil {
 		s.logger.Warn("Failed to start config watcher", "error", err)
 	}
 
-	s.logger.Info("Starting Sidecar", "addr", addr)
-	return s.server.ListenAndServe()
+	// 4. Initial Config Load & Setup
+	cfg := s.config.Current()
+	s.handleConfigUpdate(cfg) // Initial setup (load bundles/pipelines)
+
+	// 5. Start Servers
+	s.errCh = make(chan error, 10)
+	s.startServers(addr)
+
+	// Keep running until first terminal error or Stop() is called
+	select {
+	case err := <-s.errCh:
+		return err
+	case <-s.stopCh:
+		return http.ErrServerClosed
+	}
+}
+
+func (s *Sidecar) handleConfigUpdate(cfg *SidecarConfig) {
+	s.logger.Info("Sidecar configuration update received")
+
+	// Update Policy Bundles
+	ctx := context.Background()
+	for _, bundleDesc := range cfg.Policies.Bundles {
+		// Map Sidecar.PolicyBundle to domain.PolicyBundle (via legacy loader logic)
+		// For simplicity/MVP, we use legacy config.LoadPolicyBundleFromDomain if possible
+		// or direct load.
+		// Since we want full parity, we reuse the existing engine logic.
+		s.logger.Info("Loading policy bundle", "name", bundleDesc.Name, "path", bundleDesc.Path)
+
+		// Create a domain.PolicyBundleDescriptor for the legacy loader
+		desc := domain.PolicyBundleDescriptor{
+			ID:      bundleDesc.Name,
+			Name:    bundleDesc.Name,
+			Version: 1, // Defaulting for simple bundles
+			Artifacts: []domain.BundleArtifactDescriptor{
+				{
+					Name: bundleDesc.Name,
+					Path: bundleDesc.Path,
+					Type: bundleDesc.Type,
+				},
+			},
+		}
+
+		bundle, err := configpkg.LoadPolicyBundleFromDomain(desc)
+		if err != nil {
+			s.logger.Error("Failed to load policy bundle", "bundle_id", desc.ID, "error", err)
+			continue
+		}
+
+		if err := s.policyStore.SavePolicyBundle(ctx, bundle); err != nil {
+			s.logger.Error("Failed to save policy bundle to store", "bundle_id", desc.ID, "error", err)
+		} else {
+			s.logger.Info("Policy bundle loaded", "bundle_id", desc.ID)
+		}
+	}
+
+	// Update Pipelines (If any specified in config or discovered via Dir/File)
+	// For now, SidecarConfig doesn't have inline pipelines but has PipelineConfig.
+	// We should trigger the registry update here.
+	// TODO: Implement full file-based pipeline loading if Pipeline.File/Dir is set.
+}
+
+func (s *Sidecar) startServers(defaultAddr string) {
+	cfg := s.config.Current()
+
+	// 1. Determine listeners
+	httpAddresses, httpsAddresses := s.determineListenerAddresses(cfg.Server, defaultAddr)
+
+	// 2. HTTP Root Handler
+	mux := http.NewServeMux()
+	s.registerRoutes(mux)
+
+	// 3. Start HTTP servers
+	for _, httpAddr := range httpAddresses {
+		httpServer := &http.Server{
+			Addr:         httpAddr,
+			Handler:      mux,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+		}
+
+		s.mu.Lock()
+		s.servers = append(s.servers, httpServer)
+		s.mu.Unlock()
+
+		go func(server *http.Server) {
+			s.logger.Info("HTTP server listening", "addr", server.Addr)
+			if err := server.ListenAndServe(); err != nil {
+				if err != http.ErrServerClosed {
+					s.logger.Error("HTTP server failed", "addr", server.Addr, "error", err)
+					s.errCh <- err
+				}
+			}
+		}(httpServer)
+	}
+
+	// 4. Start TLS server if enabled
+	if len(httpsAddresses) > 0 || (cfg.Server.TLS != nil && cfg.Server.TLS.Enabled) {
+		tlsConfig := cfg.Server.TLS
+		if tlsConfig != nil && tlsConfig.Enabled {
+			s.logger.Info("TLS is enabled, starting TLS server")
+
+			legacyTLS := &configpkg.TLSConfig{
+				Enabled:  tlsConfig.Enabled,
+				CertFile: tlsConfig.CertFile,
+				KeyFile:  tlsConfig.KeyFile,
+			}
+
+			tlsServer, err := tls.NewTLSServer(legacyTLS, s.dagHandler, s.logger)
+			if err != nil {
+				s.logger.Error("Failed to create TLS server", "error", err)
+				s.errCh <- err
+			} else {
+				addresses := httpsAddresses
+				if len(addresses) == 0 {
+					addresses = []string{":8443"}
+				}
+
+				go func() {
+					if err := tlsServer.Start(context.Background(), addresses); err != nil {
+						if err != http.ErrServerClosed {
+							s.logger.Error("TLS server failed", "error", err)
+							s.errCh <- err
+						}
+					}
+				}()
+			}
+		}
+	}
+}
+
+func (s *Sidecar) determineListenerAddresses(serverConfig ServerConfig, defaultAddr string) (httpAddresses, httpsAddresses []string) {
+	if len(serverConfig.ListenParams) > 0 {
+		for _, param := range serverConfig.ListenParams {
+			switch param.Protocol {
+			case "http":
+				httpAddresses = append(httpAddresses, param.Address)
+			case "https":
+				httpsAddresses = append(httpsAddresses, param.Address)
+			default:
+				s.logger.Warn("Unknown protocol in listen parameters", "protocol", param.Protocol, "address", param.Address)
+			}
+		}
+	} else {
+		// Use defaultAddr (which usually comes from -port flag)
+		httpAddresses = []string{defaultAddr}
+	}
+	return httpAddresses, httpsAddresses
 }
 
 // Stop gracefully shuts down the sidecar
@@ -172,9 +328,14 @@ func (s *Sidecar) Stop(ctx context.Context) error {
 		s.bridge.Stop(ctx)
 	}
 
-	// Shutdown HTTP
-	if err := s.server.Shutdown(ctx); err != nil {
-		return err
+	// Signal stop
+	close(s.stopCh)
+
+	// Shutdown all HTTP servers
+	for _, server := range s.servers {
+		if err := server.Shutdown(ctx); err != nil {
+			s.logger.Error("HTTP server shutdown error", "addr", server.Addr, "error", err)
+		}
 	}
 
 	return nil
@@ -188,18 +349,21 @@ func (s *Sidecar) registerRoutes(mux *http.ServeMux) {
 		w.Write([]byte("OK"))
 	})
 
-	// 2. Interceptor (API Stub)
-	mux.HandleFunc("/intercept/before", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	// 3. MCP Handlers (Bridge Integration)
+	// 2. MCP Handlers (Bridge Integration)
+	// These are also wrapped in AgentID middleware if needed by the bridge
 	mux.HandleFunc("/mcp/sse", s.bridge.HandleSSE)
 	mux.HandleFunc("/mcp/message", s.bridge.HandleMessage)
 
-	// Root convenience
+	// Compatibility aliases
 	mux.HandleFunc("/sse", s.bridge.HandleSSE)
 	mux.HandleFunc("/message", s.bridge.HandleMessage)
+
+	// 3. Fallthrough to DAG Handler (Legacy Pipelines)
+	// We use a custom handler to choose between MCP and DAG
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// If it reaches here and doesn't match MCP exact paths, forward to DAG
+		s.dagHandler.ServeHTTP(w, r)
+	})
 }
 
 // noopPolicyEvaluator for initialization

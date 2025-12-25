@@ -35,7 +35,6 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 
 	// 3. Config Loader
-	// 3. Config Loader
 	logger.Info("Loading configuration", "path", *configPath)
 	loader, err := sidecar.NewConfigLoader(*configPath)
 	if err != nil {
@@ -62,13 +61,10 @@ func main() {
 
 	// 6. Start
 	addr := fmtAddr(config.Server.Port)
-
-	go func() {
-		if err := s.Start(addr); err != nil {
-			logger.Error("Sidecar failed to start", "error", err)
-			os.Exit(1)
-		}
-	}()
+	if err := s.Start(addr); err != nil {
+		logger.Error("Sidecar failed to start", "error", err)
+		os.Exit(1)
+	}
 
 	// 7. Shutdown Handling
 	sigChan := make(chan os.Signal, 1)

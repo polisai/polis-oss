@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -159,11 +160,10 @@ func (pm *LocalProcessManager) Write(data []byte) error {
 func (pm *LocalProcessManager) ReadLoop(handler func([]byte)) error {
 	pm.mu.RLock()
 	stdout := pm.stdout
-	running := pm.running
 	pm.mu.RUnlock()
 
-	if !running || stdout == nil {
-		return fmt.Errorf("process is not running")
+	if stdout == nil {
+		return fmt.Errorf("stdout pipe is not available")
 	}
 
 	scanner := bufio.NewScanner(stdout)
@@ -181,7 +181,7 @@ func (pm *LocalProcessManager) ReadLoop(handler func([]byte)) error {
 	}
 
 	if err := scanner.Err(); err != nil {
-		if err == io.EOF {
+		if err == io.EOF || strings.Contains(err.Error(), "The pipe has been ended") {
 			return nil
 		}
 		pm.logger.Error("Error reading from process stdout", "error", err)
