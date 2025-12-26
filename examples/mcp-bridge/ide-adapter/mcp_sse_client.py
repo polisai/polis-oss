@@ -103,8 +103,6 @@ def main():
     # If the bridge requires session_id, we might fail the first few posts until we capture it?
     # Better: The IDE initiates "initialize". We send that.
 
-    session_id = None
-
     # We need a shared variable for the session-specific message URL
     # For now, we will try posting to /message with just Agent-ID and let the bridge handle it
     # (if the bridge supports agent-based routing without session ID, which it might not).
