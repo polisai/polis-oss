@@ -1,26 +1,31 @@
-# Secure AI Proxy - Codebase Summary
+# Secure AI Proxy (Polis) - Codebase Summary
 
 > [!NOTE]
 > **For Future Agents:** This file serves as the master index and "table of contents" for the entire codebase. It must be kept up-to-date as files are added, removed, or significantly modified. Do not remove details; the goal is to provide a comprehensive reference for understanding the purpose and functionality of every file.
 
 ## Overview
-The **Secure AI Proxy** (Polis) is a high-performance, protocol-aware proxy designed to enforce zero-trust governance, policy enforcement, and observability for AI agent traffic. It intercepts requests, executes user-defined pipelines (DAG), and forwards validated traffic to upstream LLMs or services.
+The **Secure AI Proxy** (Polis) is a high-performance, protocol-aware proxy designed to enforce zero-trust governance, policy enforcement, and observability for AI agent traffic. It intercepts requests, executes user-defined pipelines (DAG), and provides a Model Context Protocol (MCP) bridge for tools.
 
-**Current Status:** Phase 1 (Open Source Core) Completed.
+**Current Status:** Phase 1 (Open Source Core) & Unified Sidecar Integration Completed.
+**Technical Reference:** For a deep-dive into the Secure Triad architecture and request lifecycles, see the [Comprehensive Architecture Reference](file:///c:/Users/adam/Desktop/startup/polis-oss/docs/comprehensive_architecture_reference.md).
 
 ## High-Level Architecture
 
 ```mermaid
 graph TD
-    User[User/Client] -->|Request| Sidecar[Unified Sidecar :8090]
+    User[User/Client] -->|HTTP/HTTPS| Sidecar[Unified Sidecar :8090]
     
     subgraph Unified Sidecar
         Sidecar -->|Load| Config[Config Loader]
         Config -->|Watch| File[polis.yaml]
         
-        Sidecar -->|Route| Router[Bridge Router]
-        Router -->|Local| LocalProc[Local Process]
-        Router -->|E2B| E2BProc[E2B Sandbox]
+        Sidecar -->|MCP Tools| Bridge[MCP Bridge]
+        Bridge -->|Route| BRouter[Bridge Router]
+        BRouter -->|Local| LocalProc[Local Process]
+        BRouter -->|E2B| E2BProc[E2B Sandbox]
+        
+        Sidecar -->|Pipelines| DAG[DAG Handler]
+        DAG -->|Eval| Engine[Engine Factory]
         
         Sidecar -->|Intercept| Interceptor[Interceptor Server]
         Interceptor -->|Eval| Policy[Policy Evaluator]
@@ -28,6 +33,7 @@ graph TD
     end
     
     LocalProc --> Upstream[LLM / Service]
+    Engine --> Upstream
 ```
 
 ## Directory & File Index
@@ -37,140 +43,70 @@ graph TD
 #### `cmd/polis/`
 *   **`main.go`**: The **Unified** entry point for the Sidecar.
     *   Loads unified configuration (or auto-adapts legacy formats).
-    *   Starts the single-port HTTP server (default :8090).
-    *   Manages lifecycle of Interceptor, Bridge Router, and Context Manager.
+    *   Starts multiple HTTP/HTTPS listeners (default :8090, :8443).
+    *   Orchestrates the lifecycle of the Bridge (MCP), DAG Handler (Pipelines), and Interceptor.
+
+#### `cmd/polis-cert/`
+*   **`main.go`**: CLI tool for generating TLS certificates (CA, Server, Client) for secure communication.
 
 #### `cmd/polis-core/` (Legacy)
 *   **`main.go`**: Previous standalone entry point. Preserved for reference/migration.
 
-#### `cmd/proxy/` (Legacy)
-*   **`main.go`**: Previous E2E testing entry point.
+### `pkg/sidecar/` - Unified Sidecar Core
+The orchestration layer that connects configuration to runtime components.
+*   **`sidecar.go`**: Main struct wiring Bridge, DAG Handler, and Interceptor.
+*   **`config.go`** & **`config_loader.go`**: Definition of `SidecarConfig` (schema-aware) and hot-reloading loader.
+*   **`bridge_router.go`**: Routes tool execution requests to appropriate runtimes (Local/E2B).
+*   **`interceptor.go`**: Handles request interception for auditing and pre-execution policy checks.
+*   **`context_manager.go`**: Manages ephemeral request contexts and decision storage.
+*   **`process_manager.go`** & **`local_process_manager.go`**: Abstraction for managing subprocesses (Local process management with Windows pipe resilience).
+*   **`secrets.go`**: Specialized Redaction logic for PII and secrets in intercepted traffic.
+*   **`serialization.go`**: Helper for protocol-aware serialization (SSE/JSON-RPC).
+
+### `pkg/bridge/` - MCP Bridge Core
+Implements the Model Context Protocol (MCP) as an embedded component.
+*   **`bridge.go`**: Manages MCP server lifecycle and tool registration.
+*   **`session_manager.go`**: Tracks active SSE sessions and JSON-RPC state.
+*   **`sse.go`**: Implements Server-Sent Events for tool status and output streaming.
+*   **`stream_inspector.go`**: Inspects tool outputs (stdout/stderr) for policy violations.
+*   **`metrics.go`**: Captures bridge-specific telemetry (tool usage, durations).
+*   **`middleware.go`**: Auth and agent-identification middleware for bridge endpoints.
 
 ### `pkg/config/` - Configuration Management
+*   **`config.go`**: Main `Config` struct (Unified schema) and loading logic.
+*   **`schema.go`**: Defines structures for pipelines, policies, and snapshots.
+*   **`tls_types.go`**: Detailed configuration for TLS termination and client auth.
+*   **`policy_bundle.go`**: Manages OPA rego bundles as first-class citizens.
+*   **`file_provider.go`**: Implements `fsnotify`-based configuration watching.
+*   **`trust_bundle.go`**: Manages trusted CA sets.
 
-*   **`config.go`**: Defines the main `Config` struct and loading logic.
-    *   `Load()`: Reads and parses configuration from a file.
-*   **`file_provider.go`**: Implements `domain.ConfigService` using `fsnotify`.
-    *   `NewFileConfigProvider()`: Initializes the file watcher.
-    *   `Subscribe()`: Returns a channel for configuration updates.
-    *   `watchLoop()`: Monitors file events and triggers reloads (debounced).
-*   **`schema.go`**: Defines configuration structures for pipelines and policies.
-    *   `Snapshot`: Represents the complete configuration state.
-    *   `PipelineSpec`: JSON/YAML representation of a pipeline.
-*   **`conversion.go`**: Converts configuration specs to domain models.
-    *   `ToDomain()`: Helper methods for type conversion.
-*   **`policy_types.go`**: Defines policy-related configuration types.
-*   **`trust_bundle.go`**: Manages trusted CA certificates for mTLS.
-
-### `pkg/domain/` - Domain Models
-
-*   **`pipeline.go`**: Core pipeline definitions.
-    *   `Pipeline`: Represents a processing pipeline.
-    *   `PipelineNode`: A single step in the pipeline (e.g., auth, policy, egress).
-    *   `PipelineContext`: Carries request/response data through the pipeline.
-*   **`policy.go`**: Policy definitions.
-    *   `Policy`: Represents an OPA policy.
-    *   `Decision`: The result of a policy evaluation (Allow/Block/Redact).
-*   **`config.go`**: Configuration interfaces.
-    *   `ConfigService`: Interface for managing configuration snapshots.
-*   **`governance.go`**: Governance definitions (Rate Limits, Circuit Breakers).
-*   **`telemetry.go`**: Telemetry interfaces and types.
-*   **`errors.go`**: Domain-specific error types.
-
-### `pkg/engine/` - Core Execution Engine
-
-*   **`executor.go`**: The heart of the proxy.
-    *   `DAGExecutor`: Traverses the pipeline graph.
-    *   `Execute()`: Processes a request through the DAG.
-*   **`registry.go`**: Manages active pipelines.
-    *   `PipelineRegistry`: Stores pipelines indexed by AgentID and Protocol.
-    *   `UpdatePipelines()`: Hot-swaps the active pipeline set.
-*   **`engine_factory.go`**: Creates and manages policy engines.
-    *   `EngineFactory`: Initializes OPA engines for policy nodes.
-*   **`http_handler.go`**: The HTTP entry point.
-    *   `DAGHandler`: Implements `http.Handler`.
-    *   `ServeHTTP()`: Wraps requests in `PipelineContext` and triggers the executor.
-*   **`adapters_stub.go`**: Stub implementations for interfaces (likely for testing).
+### `pkg/engine/` - Pipeline Execution Engine
+*   **`executor.go`**: Core logic for traversing the pipeline DAG.
+*   **`registry.go`**: Manages active pipelines with support for hot-swaps.
+*   **`engine_factory.go`**: Initializes and caches OPA policy engines.
+*   **`http_handler.go`**: `DAGHandler` implementation that exposes pipelines via HTTP.
+*   **`egress_http.go`**: Handles upstream communication, including HTTPS CONNECT tunneling.
 
 #### `pkg/engine/handlers/` - Node Handlers
-*   **`policy.go`**: OPA Policy Handler.
-    *   `Execute()`: Evaluates Rego policies against the request context.
-*   **`dlp.go`**: Data Loss Prevention Handler.
-    *   `DLPHandler`: Configures streaming response inspection.
-    *   `inspectRequest()`: Scans content for PII.
-*   **`egress_http.go`**: HTTP Egress Handler.
-    *   `EgressHTTPHandler`: Forwards requests to upstream services.
-    *   `Execute()`: Handles the upstream request/response cycle.
-*   **`headers.go`**: Header manipulation handler.
-*   **`body_buffer.go`**: Utilities for buffering request/response bodies.
+*   **`policy.go`**: Evaluates OPA/Rego policies.
+*   **`dlp.go`**: Data Loss Prevention handler with SSE-aware streaming support.
+*   **`mcp_filter.go`**: Enforces fine-grained tool permissions for MCP JSON-RPC messages.
+*   **`llm_judge/`**: LLM-as-Judge implementation for content evaluation.
 
-### `pkg/nodes/` - Custom Nodes
+### `internal/tls/` - TLS Support
+*   **`tls.go`**: Core TLS configuration utilities (MinVersion, CipherSuites).
+*   **`server.go`**: Custom TLS listener implementation for robust handshake handling.
 
-#### `pkg/nodes/llm_judge/v1/` - LLM-as-Judge
-*   **`handler.go`**: Implementation of the LLM Judge node logic.
-    *   `Handler`: The main struct implementing the NodeHandler interface.
-    *   `Execute()`: Coordinates prompt construction, LLM call, and decision logic.
-    *   `resolveTargetContent()`: Extracts content to evaluate (req/resp body) from pipeline context.
-*   **`provider.go`**: Interface definitions for prompt retrieval.
-*   **`local_provider.go`**: File-based implementation of `PromptProvider` (loads from `prompts/`).
-*   **`dto.go`**: Data Transfer Objects for the Judge, including `LLMResponse`, `Decision` (SAFE/UNSAFE), and `HandlerConfig`.
+### `pkg/domain/` - Domain Models & Interfaces
+*   Fundamental interfaces for `Pipeline`, `Policy`, `Governance`, and `Telemetry`.
 
-### `pkg/logging/` - Logging
+### `pkg/logging/` - Structured Logging
+*   **`logger.go`**: Configures the standard `log/slog` library for JSON or text output.
 
-*   **`logger.go`**: Structured logging setup.
-    *   `SetupLogger()`: Configures `zerolog` for async JSON (prod) or pretty console (dev) output.
-
-### `pkg/policy/` - Policy Engine
-
-*   **`engine.go`**: OPA Engine wrapper.
-    *   `OPAEngine`: Manages OPA query evaluation.
-*   **`policy.go`**: Policy domain logic.
-
-#### `pkg/policy/dlp/` - Data Loss Prevention
-*   **`scanner.go`**: Regex-based PII scanner.
-    *   `Scanner`: Holds compiled regex rules.
-    *   `Scan()`: Applies rules to text and returns findings/redactions.
-*   **`registry.go`**: Registry of DLP rules.
-*   **`stream_redactor.go`**: Streaming redaction logic.
-
-### `pkg/telemetry/` - Observability
-
-*   **`provider.go`**: OpenTelemetry provider setup.
-    *   `SetupProvider()`: Configures OTLP exporters for traces and metrics.
-
-### `internal/storage/` - Storage Layer
-
-*   **`memory_store.go`**: In-memory implementation of storage interfaces.
-    *   `MemoryPolicyStore`: Stores policies in RAM (thread-safe).
-*   **`policy_store.go`**: Interface definitions for policy storage.
-
-### `internal/governance/` - Governance Logic
-
-*   **`circuitbreaker.go`**: Circuit breaker implementation.
-*   **`ratelimit.go`**: Rate limiter implementation.
-*   **`timeouts_retries.go`**: Timeout and retry logic.
-
-### `pkg/sidecar/` - Unified Sidecar Core
-*   **`sidecar.go`**: Main struct wiring all components together.
-*   **`config.go`** & **`config_loader.go`**: Unified configuration definition and hot-reloading loader.
-*   **`interceptor.go`**: Handles request interception and policy enforcement.
-*   **`bridge_router.go`**: Routes tool execution requests to appropriate runtimes (Local/E2B).
-*   **`context_manager.go`**: Manages ephemeral request contexts and decision storage.
-*   **`process_manager.go`** & **`local_process_manager.go`**: Abstraction for managing subprocesses.
-*   **`serialization.go`**: Helper for protocol-aware serialization (SSE/JSON-RPC).
-*   **`secrets.go`**: Secret redaction and validation.
-
-### `tests/` - Testing
-
-*   **`e2e/`**: End-to-End tests.
-    *   `harness.go`: Test harness for spinning up the proxy and mock upstreams.
-    *   `llm_test.go`: Tests for LLM streaming and auth.
-*   **`integration/`**: Integration tests.
-    *   `access_policy_test.go`: Tests for access control policies.
-    *   `cost_policy_test.go`: Tests for cost control policies.
-    *   `simple_http_example_test.go`: Tests for basic pipeline routing and triggers (including `/v1/responses`).
-*   **`contract/`**: Contract tests (currently empty/placeholder).
-*   **`perf/`**: Performance tests.
+### `tests/` - Testing Suite
+*   **`e2e/`**: End-to-end tests for the unified `polis` binary.
+*   **`integration/`**: Tests for specific governance scenarios (Access, Cost, PII).
+*   **`pkg/bridge/testdata`**: Mock tools and configurations for bridge testing.
 
 ---
-*Last Updated: 2025-12-06*
+*Last Updated: 2025-12-26*
