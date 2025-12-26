@@ -1,5 +1,4 @@
 from mcp.server.fastmcp import FastMCP
-import uvicorn
 
 # Initialize FastMCP Server
 mcp = FastMCP("Governance Demo")
