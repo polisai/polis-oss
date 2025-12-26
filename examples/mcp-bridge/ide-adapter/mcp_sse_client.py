@@ -3,7 +3,6 @@ import argparse
 import threading
 import requests
 import queue
-import time
 import os
 
 
