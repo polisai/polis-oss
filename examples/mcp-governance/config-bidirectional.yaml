@@ -1,0 +1,94 @@
+# MCP Governance Configuration with Bidirectional Inspection
+# This configuration demonstrates full bidirectional security for MCP traffic
+
+server:
+  listen_params:
+    - address: ":8085"
+      protocol: "http"
+  tls:
+    enabled: false
+
+policyBundles:
+  - id: "mcp-bundle"
+    version: 1
+    path: "examples/mcp-governance/policies"
+    artifacts:
+      - name: "authz"
+        type: "rego"
+        path: "governance.rego"
+      - name: "elicitation"
+        type: "rego"
+        path: "elicitation.rego"
+
+pipelines:
+  # Pipeline for bidirectional MCP governance
+  - id: "mcp-bidirectional-demo"
+    name: "MCP Bidirectional Governance Demo"
+    agentId: "demo-agent-001"
+    protocol: "http"
+    nodes:
+      # Client → Server: Evaluate requests against authz policy
+      - type: "mcp.filter"
+        id: "mcp_authz"
+        on:
+          success: "stream_inspector"
+        config:
+          bundleRef: "mcp-bundle"
+          entrypoint: "mcp/authz/decision"
+
+      # Server → Client: Inspect SSE stream for elicitation requests
+      - type: "stream.inspector"
+        id: "stream_inspector"
+        on:
+          success: "upstream"
+        config:
+          bundleRef: "mcp-bundle"
+          entrypoint: "mcp/elicitation/decision"
+          # Inspect server-initiated requests in SSE responses
+          inspect_responses: true
+          # Fail-closed: block if policy evaluation fails
+          fail_closed: true
+
+      - type: "egress.http"
+        id: "upstream"
+        config:
+          # Connect to the MCP Bridge
+          upstream_url: "http://localhost:8090"
+          timeout: "30s"
+          # Enable SSE streaming support
+          streaming: true
+
+  # Pipeline for session-aware MCP with reconnection support
+  - id: "mcp-session-demo"
+    name: "MCP Session Management Demo"
+    agentId: "session-agent-001"
+    protocol: "http"
+    nodes:
+      - type: "mcp.filter"
+        id: "mcp_policy"
+        on:
+          success: "session_manager"
+        config:
+          bundleRef: "mcp-bundle"
+          entrypoint: "mcp/authz/decision"
+
+      # Session management for reconnection support
+      - type: "session.manager"
+        id: "session_manager"
+        on:
+          success: "upstream"
+        config:
+          # Buffer events for reconnection
+          buffer_size: 1000
+          buffer_duration: "60s"
+          # Session timeout for cleanup
+          session_timeout: "300s"
+          # Enable Last-Event-ID based reconnection
+          enable_reconnection: true
+
+      - type: "egress.http"
+        id: "upstream"
+        config:
+          upstream_url: "http://localhost:8090"
+          timeout: "30s"
+          streaming: true

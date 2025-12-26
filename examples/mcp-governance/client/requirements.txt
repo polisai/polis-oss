@@ -1,0 +1,7 @@
+mcp
+starlette
+uvicorn
+requests
+langchain
+langchain-core
+langchain-openai

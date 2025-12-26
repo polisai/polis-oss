@@ -99,6 +99,10 @@ Works with CrewAI, LangGraph, AG2, OpenAI SDK, Anthropic SDK, and more.
 * **Protocol-Aware Proxying**: Native support for HTTP 1.1 and HTTP/2 traffic routing.
 * **Pipeline Architecture**: Define request processing flows as Directed Acyclic Graphs (DAGs), allowing for complex logic like "Auth -> WAF -> Policy -> Egress".
 * **Policy as Code**: Integrated **Open Policy Agent (OPA)** engine allows you to write fine-grained authorization and governance logic in Rego.
+* **MCP Bridge**: Transport bridge for governing CLI-based MCP tools (npx, docker) without code changes.
+  * Bidirectional security inspection of client→server and server→client traffic.
+  * Session management with reconnection support.
+  * Elicitation policy enforcement to prevent prompt injection attacks.
 * **WAF Node**: Built-in Web Application Firewall (WAF) node for pattern-based request inspection.
   * Protect against prompt injection and other attacks using regex rules.
   * Supports file-backed buffering for large request bodies.
@@ -137,7 +141,7 @@ graph TD
 
 ### Installation
 
-Clone the repository and build the binary:
+Clone the repository and build the binaries:
 
 ```bash
 # Clone the repo
@@ -148,7 +152,7 @@ cd polis-oss
 pwsh -File build.ps1 build
 
 # OR Build using Go directly
-go build -o polis.exe ./cmd/polis-core
+go build -o polis.exe ./cmd/polis
 ```
 
 ### Running the Proxy
@@ -165,6 +169,37 @@ Run the binary with your configuration file:
 * `--listen`: Address to listen on (default: `:8090`).
 * `--log-level`: Log level (`debug`, `info`, `warn`, `error`).
 * `--pretty`: Enable pretty console logging (default: `false`).
+
+### Running the MCP Bridge
+
+The unified `polis` executable governs MCP tools via configuration:
+
+```yaml
+# polis.yaml
+server:
+  port: 8090
+tools:
+  filesystem:
+    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp/sandbox"]
+```
+
+Run Polis:
+```bash
+./polis.exe --config polis.yaml
+```
+
+* `--port`: Port to listen on (default: `8090`).
+* `--config`: Path to configuration file (YAML).
+
+**Bridge Endpoints (Unified):**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/mcp/sse` | GET | SSE stream for server→client messages |
+| `/mcp/message` | POST | JSON-RPC messages from client→server |
+| `/health` | GET | Health check endpoint |
+
+See [docs/testing](./docs/testing) for detailed usage.
 
 ## ⚙️ Configuration Guide
 
@@ -275,25 +310,62 @@ nodes:
       message: "Access Denied"
 ```
 
-## 🎓 Learning & Examples
+## 🔌 MCP Bridge Configuration
 
-### **Progressive Learning**
-- **Quickstart Guide**: [docs/onboarding/quickstart.md](docs/onboarding/quickstart.md)
-- **Pipeline Examples**: [examples/pipelines/](examples/pipelines/)
-- **Policy Examples**: [examples/policies/](examples/policies/)
+The MCP Bridge configuration supports the following options:
 
-### **Integration Patterns**
-- **HTTP Proxy**: Set `HTTP_PROXY=http://localhost:8090`
-- **Kubernetes Sidecar**: Deploy alongside your agents
-- **Direct Integration**: Use Polis as a library (advanced)
+```yaml
+# Server settings
+server:
+  port: 8090
 
-### **Testing Your Setup**
-```bash
-# Test all onboarding paths
-./test-onboarding.sh
+# Tool Configuration
+tools:
+  filesystem:
+    command:
+      - npx
+      - -y
+      - "@modelcontextprotocol/server-filesystem"
+      - "/tmp/sandbox"
+    env:
+      NODE_ENV: "production"
 
-# Test specific path
-./test-onboarding.sh docker
+# Logging
+logging:
+  level: "info"
+```
+
+### Elicitation Policy Example
+
+Protect against prompt injection attacks from malicious tools:
+
+```rego
+package mcp.elicitation
+
+import rego.v1
+
+default allow = false
+
+# Trusted tools allowed to make sampling requests
+trusted_tools := {"code-assistant", "filesystem-server"}
+
+# Block prompts containing injection patterns
+blocked_patterns := ["ignore previous", "disregard instructions"]
+
+allow if {
+    input.method == "sampling/createMessage"
+    input.tool_id in trusted_tools
+    not contains_blocked_pattern
+}
+
+contains_blocked_pattern if {
+    some msg in input.params.messages
+    some pattern in blocked_patterns
+    contains(lower(msg.content), pattern)
+}
+
+decision := {"action": "block", "reason": "Blocked"} if { not allow }
+decision := {"action": "allow", "reason": "Allowed"} if { allow }
 ```
 
 ## 🤝 Relation to Polis Enterprise

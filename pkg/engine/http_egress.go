@@ -291,8 +291,11 @@ func (h *DAGHandler) executeEgressHTTP(ctx context.Context, w http.ResponseWrite
 			rawPayload []byte
 		)
 
-		switch mode {
-		case "buffered":
+		contentType := resp.Header.Get("Content-Type")
+		isSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream")
+
+		switch {
+		case mode == "buffered":
 			rawPayload, err = io.ReadAll(bodyReader)
 			if err != nil {
 				return fmt.Errorf("dlp: failed to read response: %w", err)
@@ -318,6 +321,24 @@ func (h *DAGHandler) executeEgressHTTP(ctx context.Context, w http.ResponseWrite
 					return fmt.Errorf("failed to write response body: %w", writeErr)
 				}
 			}
+		case isSSE:
+			// Special handling for Server-Sent Events (SSE) to preserve framing
+			// Also applies SSE stream inspection for server-initiated requests (Requirements 3.1-3.5)
+			h.logger.Debug("dlp: engaging sse-aware redaction with inspection", "target_url", targetURL)
+			
+			// Extract SSE inspection configuration from pipeline context
+			sseInspectCfg := extractSSEInspectionConfig(pipelineCtx)
+			
+			var inspectionReport *handlers.SSEInspectionReport
+			dlpReport, inspectionReport, dlpErr = inspectAndRedactSSEStream(
+				ctx, bodyReader, streamWriter, &cfg, sseInspectCfg, pipelineCtx, h.logger,
+			)
+			
+			// Record inspection results in pipeline context
+			if inspectionReport != nil {
+				recordSSEInspectionResults(pipelineCtx, inspectionReport)
+			}
+
 		default:
 			// Stream mode with hybrid buffering: buffer small responses (<1MB) in memory
 			// to enable fail-open recovery, spill larger responses to stream-only mode.
@@ -414,9 +435,30 @@ func (h *DAGHandler) executeEgressHTTP(ctx context.Context, w http.ResponseWrite
 			}
 		}
 	} else {
-		if _, err := io.Copy(streamWriter, bodyReader); err != nil {
-			h.logger.Error("failed to copy response body", "error", err)
-			return fmt.Errorf("failed to copy response body: %w", err)
+		// Check if SSE inspection is enabled even without DLP
+		contentType := resp.Header.Get("Content-Type")
+		isSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream")
+		sseInspectCfg := extractSSEInspectionConfig(pipelineCtx)
+
+		if isSSE && sseInspectCfg != nil && sseInspectCfg.Enabled {
+			// SSE inspection without DLP
+			h.logger.Debug("engaging sse stream inspection (no DLP)", "target_url", targetURL)
+			_, inspectionReport, inspectErr := inspectAndRedactSSEStream(
+				ctx, bodyReader, streamWriter, nil, sseInspectCfg, pipelineCtx, h.logger,
+			)
+			if inspectErr != nil {
+				h.logger.Error("SSE inspection failed", "error", inspectErr)
+				return fmt.Errorf("sse inspection failed: %w", inspectErr)
+			}
+			if inspectionReport != nil {
+				recordSSEInspectionResults(pipelineCtx, inspectionReport)
+			}
+		} else {
+			// No DLP and no SSE inspection - just copy the stream
+			if _, err := io.Copy(streamWriter, bodyReader); err != nil {
+				h.logger.Error("failed to copy response body", "error", err)
+				return fmt.Errorf("failed to copy response body: %w", err)
+			}
 		}
 	}
 

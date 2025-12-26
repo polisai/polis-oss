@@ -47,7 +47,7 @@ func (f *EngineFactory) InitializeEnginesForPipeline(ctx context.Context, pipeli
 
 	for _, node := range pipeline.Nodes {
 		switch node.Type {
-		case "policy.opa", "policy":
+		case "policy.opa", "policy", "mcp.filter":
 			f.logger.Info("Initializing policy engine", "node_id", node.ID)
 			engine, err := f.initPolicyEngine(ctx, &node)
 			if err != nil {

@@ -1,0 +1,6 @@
+listenAddr: ":8090"
+# Strict mode for Enterprise deployments
+auth:
+  enforce_agent_id: true
+  default_agent_id: "error-should-not-be-used"
+log_level: "info"
