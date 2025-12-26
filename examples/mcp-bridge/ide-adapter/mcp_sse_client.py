@@ -1,5 +1,4 @@
 import sys
-import json
 import argparse
 import threading
 import requests
